@@ -1,13 +1,12 @@
+[English](./README.md) | 简体中文
 
-English| [简体中文](./README_cn.md)
-
-Getting Started with Openpi Runtime Package
+Getting Started with Openpi Runtime
 =======
 
 
-# Feature Introduction
+# 功能介绍
 
-The Openpi Runtime package is an VLA (Vision Language Action Model) example of quantized deployment based on [Pi0](https://github.com/Physical-Intelligence/openpi), which is the basic model in openpi. The input datas consist of three parts:
+Openpi package 是基于 [Pi0](https://github.com/Physical-Intelligence/openpi) 量化部署的 VLA(视觉语言动作大模型) 使用示例。算法输入依赖几个部分:
 
 - "images"：{
     "0": [1, 3, 224, 224], dtype=uint8,
@@ -19,85 +18,91 @@ The Openpi Runtime package is an VLA (Vision Language Action Model) example of q
 
 - "state": [1, 14], dtype=float64, the stare of the two robotics arms.
 
-The image data comes from at least three subscribed image messages. Additionally, we provide the pi0 runtime server on D-robotics OE-LLM. By the infer of pi0 server, we can get the actions to control the robotics arms directly again and again util we finilly finish the task.
+图像数据来源于订阅到的image msg, 示例中采用3个D457发布图片。此外, 本功能包需要配套地瓜机器人大模型工具包(OE-LLM) 使用, 具体是为了启动 Pi0 推理模型, 作为一个Server节点使用。推理完成后, 最终会获得机械臂控制的关节信息, 并且可以直接作用在机械臂控制上, 直到该任务完成或者达到用户设置的最大控制次数。本示例展示了一个控制流程示例, 实际应用中, 需要配合具体机械臂接入使用。
 
-# Development Environment
+# 开发环境
 
-- Programming Language: Python3
-- Development Platform: RDK S600
-- System Version: Ubuntu 24.04
-- Compilation Toolchain: Linaro GCC 13.3.0
+- 编程语言: Python3
+- 开发平台: S600
+- 系统版本：Ubuntu 24.04
+- 编译工具链: Linux GCC 13.3.0
 
-# Compilation
+# 编译
 
-- S600 Version: Supports compilation on the S600 Ubuntu system and cross-compilation using Docker on a PC.
+- S600版本：支持在S600 Ubuntu系统上编译和在PC上使用docker交叉编译两种方式。
 
-It also supports controlling the dependencies and functionality of the compiled pkg through compilation options.
+同时支持通过编译选项控制编译pkg的依赖和pkg的功能。
 
-## Dependency Libraries
+## 依赖库
 
-- OpenCV: 3.4.5
+- opencv:3.4.5
 
-ROS Packages:
+ros package：
 
 - cv_bridge
 - sensor_msgs
 
-## Compilation Options
+## 编译选项
 
-1. Compilation Environment Verification
+## S600 Ubuntu系统上编译
 
-- The S600 Ubuntu system is installed on the board.
-- The current compilation terminal has set up the TogetherROS environment variable: `source PATH/setup.bash`. Where PATH is the installation path of TogetherROS.
-- The ROS2 compilation tool colcon is installed. If the installed ROS does not include the compilation tool colcon, it needs to be installed manually. Installation command for colcon: `pip install -U colcon-common-extensions`.
+1、编译环境确认
 
-2. Compilation
+- 板端已安装S600 Ubuntu系统。
+- 当前编译终端已设置TogetherROS环境变量：`source PATH/setup.bash`。其中PATH为TogetherROS的安装路径。
+- 已安装ROS2编译工具colcon。安装的ROS不包含编译工具colcon, 需要手动安装colcon。colcon安装命令：`pip install -U colcon-common-extensions`
+- 已编译dnn node package
 
-- Compilation command: `colcon build --packages-select openpi_runtime`
+2、编译
 
-## Docker Cross-Compilation for S600 Version
+- 编译命令：`colcon build --packages-select openpi_runtime`
 
-1. Compilation Environment Verification
+## docker交叉编译 S600版本
 
-- Compilation within docker, and TogetherROS has been installed in the docker environment. For instructions on docker installation, cross-compilation, TogetherROS compilation, and deployment, please refer to the README.md in the robot development platform's robot_dev_config repo.
-- The dnn node package has been compiled.
-- The hbm_img_msgs package has been compiled (see Dependency section for compilation methods).
+1、编译环境确认
 
-2. Compilation
+- 在docker中编译, 并且docker中已经安装好TogetherROS。docker安装、交叉编译说明、TogetherROS编译和部署说明详见机器人开发平台robot_dev_config repo中的README.md。
 
-- Compilation command:
+2、编译
+
+- 编译命令：
 
   ```shell
   # RDK S600
   bash robot_dev_config/build.sh -p S600 -s openpi_runtime
   ```
 
-## Notes
+- 编译选项中默认打开了shared mem通信方式。
+
+## 注意事项
 
 
-# Instructions
+# 使用介绍
 
-## Dependencies
+## 依赖
 
-- realsense2_camera package: Publishes image messages in realsense for the example D457.
-- websocket package: Renders image messages.
+- mipi_cam package：发布图片msg
+- usb_cam package：发布图片msg
+- websocket package：渲染图片和ai感知msg
 
-## Parameters
+## 参数
 
-| Parameter Name      | Explanation                            | Mandatory            | Default Value       | Remarks                                                                 |
-| ------------------- | -------------------------------------- | -------------------- | ------------------- | ----------------------------------------------------------------------- |
-| user_prompt           | Task name   | No                   | beat block hammer                   |                                                                         |
-| max_limit_num               | the max time the robot can try                       | No                   | 50     |                                                                         |
-| state_sub_topic_name   | Subscribe to robotic arm state | No  | /joint_states                   |                                                                         |
-| camera_topic_name | Brain side camera topic name for subscribing image msg | No                   | /camera/camera/color/image_raw | |
-| camera_left_topic_name | Left-arm Camera on topic name for subscribing image msg| No                   | /camera_left/camera_left/color/image_raw | |
+| 参数名             | 解释                                  | 是否必须             | 默认值              | 备注                                                                    |
+| ------------------ | ------------------------------------- | -------------------- | ------------------- | ----------------------------------------------------------------------- |
+| user_prompt           | 用户定义的任命名   | No                   | beat block hammer                   |                                                                         |
+| max_limit_num               | VLA模型最大尝试次数 try                       | No                   | 50     |                                                                         |
+| state_sub_topic_name   | 订阅机械臂状态的话题 | No  | /joint_states                   |                                                                         |
+| camera_topic_name | 头部相机发布的话题名 | No                   | /camera/camera/color/image_raw | |
+| camera_left_topic_name | 左臂相机发布的话题名 | No                   | /camera_left/camera_left/color/image_raw | |
 
-## Running
 
-## Running Pi0 on RDK S600 Ubuntu System
+## 运行
 
-Running method 1, use the executable file to start:
+- 编译成功后, 将生成的install路径拷贝到地平线RDK上（如果是在RDK上编译, 忽略拷贝步骤）, 并执行如下命令运行。
 
+## 在RDK S600 Ubuntu系统上运行Pi0相关
+
+运行方式1, 使用可执行文件启动：
 ```shell
 export COLCON_CURRENT_PREFIX=./install
 source /opt/ros/jazzy/setup.bash
@@ -106,7 +111,7 @@ source ./install/setup.bash
 ros2 run openpi_runtime openpi_runtime_node --ros-args -p max_limit_num:=50 --log-level warn
 ```
 
-Running method 2, use the python file to start:
+运行模式2, 使用python脚本启动
 
 ```shell
 export COLCON_CURRENT_PREFIX=./install
@@ -116,32 +121,31 @@ source ./install/setup.bash
 python3 install/lib/openpi_runtime/openpi_runtime_node
 ```
 
-Running method 3, using a launch file:
-
+运行方式3, 使用launch文件启动：
 ```shell
 export COLCON_CURRENT_PREFIX=./install
 source /opt/ros/jazzy/setup.bash
 source ./install/setup.bash
 
-# Start the launch file, publish rgb8 images from D457.
+# 启动launch文件, 使用D457 sensor发布rgb8格式图片
 ros2 launch openpi_runtime runtime.launch.py
 ```
 
-## Running Others on RDK S600 Ubuntu System
+## 在RDK S600 Ubuntu系统上运行其他程序
 
-- Start the pi0 server in oe_llm(comming soon).
+- 启动 Pi0 推理服务节点, 通过 OE-LLM 获取。
 
 ```shell
 bash run_pi0.sh
 ```
 
-- Publish the robotic arm state in empty data.
+- 发布一个空的机械臂状态信息
 
 ```shell
 ros2 topic pub /joint_states sensor_msgs/msg/JointState "{name: [], position: [-0.1300568,0.50693603,0.54202605,-0.2851898,-0.03326998,-0.12191405,0.56831681,-0.0183007,-0.04226554,-0.02073833,0.03956214,-0.00720679,-0.02525674,0.46239254], velocity: [], effort: []}" -r 1
 ```
 
-- Pulish the D457 sensor using 'GMSL' mode.
+- 发布 D457 话题消息
 
 ```shell
 source /opt/tros/jazzy/setup.bash
@@ -153,13 +157,13 @@ source /opt/tros/jazzy/setup.bash
 ros2 launch realsense2_camera rs_launch.py serial_no:='_241122306184' camera_namespace:=camera_left camera_name:=camera_left rgb_camera.color_profile:=1280x720x30
 ```
 
-# Results Analysis
+# 结果分析
 
-## RDK S600 Pi0 Server Result
+## S600 Pi0 server端 结果展示
 
-Command executed: `bash run_pi0.sh"`
+运行命令：`bash run_pi0.sh"`
 
-```shell
+```bash
 [UCP]: log level = 3
 [UCP]: UCP version = 3.12.3
 [VP]: log level = 3
@@ -220,9 +224,9 @@ Pi0 Total time: 146.964ms.
 发送成功，长度：5651字节
 ```
 
-## RDK S600 Runtime(Client) Result:
+## S600 Pi0 client端 结果展示
 
-Command executed: `ros2 run openpi_runtime openpi_runtime_node --ros-args -p max_limit_num:=50 --log-level warn"`
+运行命令: `ros2 run openpi_runtime openpi_runtime_node --ros-args -p max_limit_num:=50 --log-level warn"`
 
 ```bash
 [WARN] [1765633774.309818394] [openpi_runtime_node]: Openpi Runtime Node has been started.
@@ -238,5 +242,4 @@ camera_right_topic_name : /camera_right/camera_right/color/image_raw
 
 服务器启动成功，等待客户端连接...（端口：8888）
 客户端已连接：IP=127.0.0.1, 端口=50938
-
 ```
