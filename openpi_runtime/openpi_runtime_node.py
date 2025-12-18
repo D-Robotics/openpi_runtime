@@ -78,12 +78,38 @@ camera_right_topic_name : {self.camera_right_topic_name}
             pass
         elif self.embodiment == "piper":
             from piper_sdk import C_PiperInterface_V2
-            from openpi_runtime.piper.piper import piper_enable
+            # from openpi_runtime.embodiments.piper.piper import piper_enable
 
             self.left_arm = C_PiperInterface_V2("can_piper")
             self.left_arm.ConnectPort()
-            piper_enable(self.left_arm)  
+            '''
+            使能机械臂并检测使能状态,尝试5秒,超时则退出
+            '''
+            timeout = 5
+            start_time = time.time()
 
+            while True:
+                low_msg = self.left_arm.GetArmLowSpdInfoMsgs()
+                enabled = all([
+                    low_msg.motor_1.foc_status.driver_enable_status,
+                    low_msg.motor_2.foc_status.driver_enable_status,
+                    low_msg.motor_3.foc_status.driver_enable_status,
+                    low_msg.motor_4.foc_status.driver_enable_status,
+                    low_msg.motor_5.foc_status.driver_enable_status,
+                    low_msg.motor_6.foc_status.driver_enable_status
+                ])
+                print("--------------------")
+                print("使能状态:", enabled)
+                if enabled:
+                    return 0
+                    break
+                self.left_arm.EnableArm(7)
+                self.left_arm.GripperCtrl(0, 1000, 0x01, 0)
+                if time.time() - start_time > timeout:
+                    print("使能超时，退出程序")
+                    return 1
+                    sys.exit(1)
+                time.sleep(1)
 
 
 
@@ -166,7 +192,7 @@ camera_right_topic_name : {self.camera_right_topic_name}
 
         # 2. get arms' states
         state = self.get_arm_state(campare_stamp)
-        if state == None:
+        if state is None:
             self.get_logger().error("Get Arm State Failed! Please check!")
             return
 
@@ -219,7 +245,11 @@ camera_right_topic_name : {self.camera_right_topic_name}
     def get_arm_state(self, campare_stamp):
         state = np.zeros((1, 14), dtype=np.float64)
         if self.embodiment == "" or self.embodiment == None:
-            pass
+            if self.state_queue.empty():
+                return None
+            state = self.state_queue.get().position
+            state = np.array(state).reshape(1, 14)
+            
         elif self.embodiment == "piper":
             left_arm_msg = self.left_arm.GetArmJointMsgs()
             left_gripper_msg = self.left_arm.GetArmGripperMsgs()
