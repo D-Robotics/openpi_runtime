@@ -20,8 +20,9 @@ from collections import deque
 from dataclasses import dataclass
 from typing import Dict, List
 
-# 导入您的模块
+# 导入机械臂SDK
 from piper_sdk import C_PiperInterface_V2
+import alicia_d_sdk  # 添加示教臂SDK
 
 # ===================== 时间同步管理器 =====================
 
@@ -86,24 +87,46 @@ class TimeSyncManager:
                 return self.synced_queue.popleft()
         return None
 
-# ===================== 数据收集器 =====================
+# ===================== 数据收集器（增强版） =====================
 
 class DataCollector:
-    """增强版数据收集器：集成时间同步管理器，减少丢帧"""
+    """增强版数据收集器：集成时间同步管理器与机械臂示教同步功能"""
     
-    def __init__(self):
+    def __init__(self, sync_mode=False, leader_port="/dev/ttyUSB1"):
         self.record_freq = 30.0
         self.min_frame_interval = 1.0 / self.record_freq
-        self.time_sync_tolerance = 0.05  # 50ms (实际由 TimeSyncManager 控制)
+        self.time_sync_tolerance = 0.05
         
         rclpy.init()
         self.node = Node('data_collection_node')
         self.logger = self.node.get_logger()
         
+        # 同步模式标志
+        self.sync_mode = sync_mode
+        self.leader_port = leader_port
+        
         # 初始化机械臂
         self.logger.info("连接机械臂...")
         self.piper = C_PiperInterface_V2("can0")
         self.piper.ConnectPort()
+        
+        # 如果是同步模式，连接示教臂
+        if self.sync_mode:
+            self.logger.info("示教同步模式已启用，连接示教臂...")
+            self.leader_robot = alicia_d_sdk.create_robot(
+                port=leader_port,
+                baudrate=1000000,
+                robot_version="v5_6",
+                robot_type="leader",
+                gripper_type="50mm"
+            )
+            if not self.leader_robot.connect():
+                self.logger.error("示教臂连接失败！")
+                sys.exit(1)
+            self.logger.info("示教臂连接成功")
+        
+        # 使能操作臂
+        self._enable_follower_arm()
         
         # HDF5配置
         self.hdf5_config = {
@@ -129,12 +152,15 @@ class DataCollector:
         self.buffer_lock = threading.Lock()
         self.episode_count = 0
         
-        # 设置图像订阅（集成时间同步）
+        # 设置图像订阅
         self.setup_image_subscriptions()
         
         # 启动键盘监听
         self.logger.info("启动键盘监听...")
-        self.logger.info('按 "s" 开始记录，按 "d" 停止记录，按 "q" 退出程序')
+        if self.sync_mode:
+            self.logger.info('按 "s" 开始记录+同步，按 "d" 停止，按 "q" 退出')
+        else:
+            self.logger.info('按 "s" 开始记录，按 "d" 停止记录，按 "q" 退出程序')
         self.keyboard_thread = threading.Thread(target=self.keyboard_listener, daemon=True)
         self.keyboard_thread.start()
         
@@ -152,6 +178,101 @@ class DataCollector:
     def restore_terminal(self):
         termios.tcsetattr(self.fd, termios.TCSADRAIN, self.old_settings)
         
+    def _enable_follower_arm(self):
+        """使能操作臂（follower）"""
+        enable_flag = False
+        timeout = 5
+        start_time = time.time()
+        
+        while not enable_flag:
+            elapsed_time = time.time() - start_time
+            print("--------------------")
+            enable_flag = self.piper.GetArmLowSpdInfoMsgs().motor_1.foc_status.driver_enable_status and \
+                self.piper.GetArmLowSpdInfoMsgs().motor_2.foc_status.driver_enable_status and \
+                self.piper.GetArmLowSpdInfoMsgs().motor_3.foc_status.driver_enable_status and \
+                self.piper.GetArmLowSpdInfoMsgs().motor_4.foc_status.driver_enable_status and \
+                self.piper.GetArmLowSpdInfoMsgs().motor_5.foc_status.driver_enable_status and \
+                self.piper.GetArmLowSpdInfoMsgs().motor_6.foc_status.driver_enable_status
+            print("操作臂使能状态:", enable_flag)
+            self.piper.EnableArm(7)
+            self.piper.GripperCtrl(0, 1000, 0x01, 0)
+            
+            if elapsed_time > timeout:
+                print("使能超时，退出程序")
+                sys.exit(1)
+            time.sleep(0.1)
+        
+        self.logger.info("操作臂使能成功")
+        
+    def joint_projection(self, joint_position):
+        """
+        将示教臂关节角度映射到操作臂的关节限制范围内
+        支持Alicia Duo到Piper的映射
+        """
+        motor_dir = [1, -1, -1, -1, -1, -1]
+        
+        # Alicia Duo限位（弧度）
+        alicia_limits = [
+            [-3.14, 3.14],    # J1
+            [0, 3.14],        # J2
+            [-3.14, 0],       # J3 
+            [-3.14, 3.14],    # J4
+            [-1.57, 1.57],    # J5
+            [-3.14, 3.14]     # J6
+        ]
+        
+        # Piper限位（弧度）
+        piper_limits = [
+            [-2.68, 2.68],    # J1
+            [0, 3.40],        # J2
+            [-3.05, 0],       # J3
+            [-1.85, 1.85],    # J4
+            [-1.31, 1.31],    # J5
+            [-1.75, 1.75]     # J6
+        ]
+        
+        projected_joints = []
+        
+        for i in range(6):
+            alicia_min, alicia_max = alicia_limits[i]
+            piper_min, piper_max = piper_limits[i]
+            joint_val = joint_position[i] * motor_dir[i]
+            
+            # 限制在Alicia限位内
+            joint_val = max(alicia_min, min(alicia_max, joint_val))
+            
+            # 归一化到[0,1]
+            alicia_range = alicia_max - alicia_min
+            if alicia_range > 0:
+                normalized = (joint_val - alicia_min) / alicia_range
+            else:
+                normalized = 0
+            
+            # 映射到Piper范围
+            piper_range = piper_max - piper_min
+            projected_val = piper_min + normalized * piper_range
+            projected_joints.append(round(projected_val, 3))
+        
+        # 添加夹爪占位
+        projected_joints.append(0.0)
+        return projected_joints
+        
+    def set_follower_joint_value(self, position, gripper):
+        """设置操作臂关节值"""
+        factor = 57295.7795  # 1000*180/3.1415926
+        
+        joint_0 = round(position[0] * factor)
+        joint_1 = round(position[1] * factor)    
+        joint_2 = round(position[2] * factor)
+        joint_3 = round(position[3] * factor)
+        joint_4 = round(position[4] * factor)
+        joint_5 = round(position[5] * factor)
+        joint_6 = int(gripper * 1000)
+        
+        self.piper.MotionCtrl_2(0x01, 0x01, 100, 0x00)
+        self.piper.JointCtrl(joint_0, joint_1, joint_2, joint_3, joint_4, joint_5)
+        self.piper.GripperCtrl(joint_6, 3000, 0x01, 0)
+        
     def setup_image_subscriptions(self):
         """设置图像订阅并集成时间同步"""
         self.bridge = CvBridge()
@@ -168,7 +289,7 @@ class DataCollector:
         self.sync_mgr = TimeSyncManager(
             topics=self.image_topic_names,
             max_queue_size=30,
-            slop_ns=int(self.time_sync_tolerance * 1_000_000_000)  # 转换为纳秒
+            slop_ns=int(self.time_sync_tolerance * 1_000_000_000)
         )
         
         # 为每个 topic 创建订阅
@@ -182,11 +303,29 @@ class DataCollector:
             self.logger.info(f"已订阅: {topic_name} (通过时间同步管理器)")
         
     def process_frame(self):
-        """处理帧数据（使用时间同步管理器）"""
+        """处理帧数据（集成同步控制）"""
+        current_time = time.time()
+        
+        # 同步模式：读取示教臂状态并控制操作臂
+        if self.sync_mode and self.is_recording:
+            try:
+                # 读取示教臂状态
+                leader_joints = self.leader_robot.get_joints()
+                leader_gripper = self.leader_robot.get_gripper()
+                
+                # 映射到操作臂关节空间
+                follower_joints = self.joint_projection(leader_joints)
+                
+                # 控制操作臂
+                self.set_follower_joint_value(follower_joints, leader_gripper)
+                
+            except Exception as e:
+                self.logger.error(f"同步控制失败: {e}")
+        
+        # 数据收集逻辑
         if not self.is_recording:
             return
             
-        current_time = time.time()
         if current_time - self.last_frame_time < self.min_frame_interval:
             return
         
@@ -195,18 +334,16 @@ class DataCollector:
         if group is None:
             return
         
-        # 记录时间戳作为标准时间
-        ts_ref = group.stamp_ns / 1_000_000_000.0  # 转换为秒
+        ts_ref = group.stamp_ns / 1_000_000_000.0
         self.last_frame_time = current_time
         
-        # 转换图像消息为 OpenCV 格式
+        # 转换图像消息
         try:
             imgs = {}
             for topic, img_msg in group.frames.items():
                 cv_img = self.bridge.imgmsg_to_cv2(img_msg)
                 imgs[topic] = cv_img
                 
-            # 按照固定顺序提取图像（确保数据一致性）
             img_high = imgs[self.image_topic_names[0]]
             img_left = imgs[self.image_topic_names[1]]
             
@@ -214,7 +351,7 @@ class DataCollector:
             self.logger.error(f"图像转换失败: {e}")
             return
         
-        # 读取机械臂状态
+        # 读取操作臂状态用于数据记录
         try:
             joint_angles = self.read_arm_state()
         except Exception as e:
@@ -232,11 +369,12 @@ class DataCollector:
         self.logger.info(f"记录帧 {frame_idx}: 关节={joint_angles[:7]}, ts={ts_ref:.3f}")
         
     def read_arm_state(self) -> np.ndarray:
-        """读取机械臂关节角度"""
+        """读取操作臂关节角度"""
         state = np.zeros(self.hdf5_config['action_dim'], dtype=np.float32)
         left_arm_msg = self.piper.GetArmJointMsgs()
         left_gripper_msg = self.piper.GetArmGripperMsgs()
         
+        # 从SDK对象中提取数据（单位：0.001度/0.001mm）
         state[0] = float(left_arm_msg.joint_state.joint_1) / 1000.0
         state[1] = float(left_arm_msg.joint_state.joint_2) / 1000.0
         state[2] = float(left_arm_msg.joint_state.joint_3) / 1000.0
@@ -280,7 +418,11 @@ class DataCollector:
             
         self.episode_count += 1
         self.logger.warn(f"\n{'='*50}")
-        self.logger.warn(f"开始记录第 {self.episode_count} 段数据...")
+        if self.sync_mode:
+            self.logger.warn(f"开始同步记录第 {self.episode_count} 段数据...")
+            self.logger.warn("示教臂运动将实时控制操作臂")
+        else:
+            self.logger.warn(f"开始记录第 {self.episode_count} 段数据...")
         self.logger.warn(f"按 'd' 停止记录")
         self.logger.warn(f"{'='*50}\n")
         
@@ -304,7 +446,6 @@ class DataCollector:
             output_path = Path(f'datasets/episode_{self.episode_count}_{datetime.now().strftime("%Y%m%d_%H%M%S")}.hdf5')
             self.save_recording_to_hdf5(output_path)
             self.logger.warn(f"文件已保存: {output_path}")
-            self.logger.info('按 "s" 开始记录，按 "d" 停止记录，按 "q" 退出程序')
         except Exception as e:
             self.logger.error(f"保存失败: {e}")
             import traceback
@@ -322,7 +463,7 @@ class DataCollector:
         return encoded.tobytes()
         
     def encode_cv_image_to_bytes(self, image: np.ndarray) -> bytes:
-        if image is None:
+        if image is None or image.size == 0:
             self.logger.error("接收到空图像！")
             raise ValueError("空图像无法编码")
         
@@ -421,13 +562,15 @@ class DataCollector:
             f.attrs['creation_time'] = datetime.now().isoformat()
             f.attrs['description'] = 'DexArt格式数据，右臂数据为占位符'
             f.attrs['num_timesteps'] = num_timesteps
+            f.attrs['sync_mode'] = self.sync_mode  # 记录是否启用同步
         
         self.logger.info(f"HDF5文件保存成功: {num_timesteps} 帧")
         
     def run(self):
         """主运行循环"""
         try:
-            self.logger.warn("系统运行中...")
+            mode_str = "示教同步模式" if self.sync_mode else "数据采集模式"
+            self.logger.warn(f"{mode_str}运行中...")
             rclpy.spin(self.node)
         except KeyboardInterrupt:
             self.logger.info("接收到中断信号")
@@ -440,14 +583,24 @@ class DataCollector:
         self.stop_recording()
         self.restore_terminal()
         self.node.destroy_node()
-        # rclpy.shutdown()
+        if self.sync_mode:
+            self.leader_robot.disconnect()
         self.logger.info("程序已退出")
 
 
 def main():
     """主函数"""
     try:
-        collector = DataCollector()
+        # 添加命令行参数
+        import argparse
+        parser = argparse.ArgumentParser(description="数据收集与示教同步工具")
+        parser.add_argument('--sync', action='store_true', 
+                           help="启用示教同步模式")
+        parser.add_argument('--leader_port', type=str, default="/dev/ttyUSB0",
+                           help="示教臂串口端口 (默认: /dev/ttyUSB0)")
+        args = parser.parse_args()
+        
+        collector = DataCollector(sync_mode=args.sync, leader_port=args.leader_port)
         collector.run()
     except Exception as e:
         print(f"程序异常退出: {e}")
