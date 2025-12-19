@@ -25,7 +25,9 @@
 - **功能**：采集人机交互过程中的多模态数据（如关节角度、末端位姿、时间戳等），并保存为 **.hdf5** 格式文件。
 - **运行方式**：
   ```bash
-  python collect_data.py
+  source /opt/ros/jazzy/setup.bash
+  export ROS_DOMAIN_ID=40
+  python collect_data.py --sync
   ```
 
 ### 3. analycis_data.py

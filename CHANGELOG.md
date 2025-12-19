@@ -13,3 +13,7 @@ tros_0.1.1 (2025-12-18)
 tros_0.1.2 (2025-12-19)
 ------------------
 1.Add scripts for piper.
+
+tros_0.1.3 (2025-12-19)
+------------------
+1.Modified /embodiments/piper/collect_data.py
