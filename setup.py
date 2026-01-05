@@ -12,7 +12,15 @@ setup(
         ('share/' + package_name, ['package.xml']),
         ('share/' + package_name + '/' + 'launch', ['launch/runtime.launch.py']),
     ],
-    install_requires=['setuptools'],
+    # install_requires=['setuptools'],
+
+
+    install_requires=[
+        'setuptools',
+        'piper_sdk',        # 添加pip依赖
+        'alicia_d_sdk',     # 添加pip依赖
+    ],
+
     zip_safe=True,
     maintainer='zixi01.chen',
     maintainer_email='zixi01.chen@d-robotics.cc',
@@ -23,6 +31,9 @@ setup(
         'console_scripts': [
             'openpi_runtime_node = openpi_runtime.openpi_runtime_node:main',
             'data_collection_node = openpi_runtime.data_collection_node:main',
+            'aliciaD_node = openpi_runtime.aliciaD_node:main',
+            'piper_node = openpi_runtime.piper_node:main',
+            'record_node = openpi_runtime.record_node:main',
         ],
     },
 )

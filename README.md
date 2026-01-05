@@ -240,3 +240,84 @@ camera_right_topic_name : /camera_right/camera_right/color/image_raw
 客户端已连接：IP=127.0.0.1, 端口=50938
 
 ```
+
+# data collection
+##  data collection pipeline
+首先启动piper_node和aliciaD_node，确认piper机械臂能够被aliciaD示教，然后使用rosbag的保存命令保存话题信息。
+
+piper、aliciaD节点发布话题 -> rosbag -> .hdf5
+
+
+## start camera node
+### camera node
+view doc
+
+### piper_node
+
+```bash
+export ROS_DOMAIN_ID=40
+export COLCON_CURRENT_PREFIX=./install
+source /opt/ros/jazzy/setup.bash
+source ./install/setup.bash
+
+python3 install/lib/openpi_runtime/piper_node
+```
+
+
+### aliciaD_node
+```bash
+export COLCON_CURRENT_PREFIX=./install
+source /opt/ros/jazzy/setup.bash
+source ./install/setup.bash
+export ROS_DOMAIN_ID=40
+
+python3 install/lib/openpi_runtime/aliciaD_node
+
+```
+
+## record task
+task:
+```
+"/aliciaD/action"
+"/piper/qpos" 
+"/camera/camera/color/image_raw"
+"/camera_left/camera_left/color/image_raw"
+```
+
+
+Do not save to a network mounted folder, as disk read and write speeds cannot keep up with the save speed, resulting in serious packet loss
+
+record：
+```bash
+#!/bin/bash
+
+BAG_NAME="rosbag2_$(date +%Y%m%d_%H%M%S)"
+SOURCE_DIR="/mnt/wang.liu/mnt/datasets"                 
+
+ros2 bag record \
+  --output "$BAG_NAME" \
+  --storage mcap \
+  --max-cache-size 1000000000 \
+  --max-bag-size 104857600 \
+  --compression-mode file \
+  --compression-format zstd \
+  --topics \
+    /aliciaD/action \
+    /piper/qpos \
+    /camera/camera/color/image_raw \
+    /camera_left/camera_left/color/image_raw
+
+```
+
+## replay
+Close aliciaD_node and replay the/aliciaD/action topic. Piper will repeat recorded actions
+```bash
+ros2 bag play rosbag2_20260101_154003/ --topics /aliciaD/action
+```
+
+
+## convert
+```bash
+python bag_2_hdf5.py
+python rename_hdf5.py
+```
