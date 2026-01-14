@@ -24,6 +24,8 @@ from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import Image, JointState
 
+from std_msgs.msg import Float32MultiArray
+
 import openpi_runtime.msg_pb2 as msg_pb2
 from openpi_runtime.time_sync_manager import TimeSyncManager
 from openpi_runtime.image_process import ImageProcessor
@@ -35,13 +37,16 @@ class OpenpiRuntimeNode(Node):
         self.get_logger().warn('Openpi Runtime Node has been started.')
 
         # 1. common setting
-        self.declare_parameter('user_prompt', "beat block hammer")
+        self.declare_parameter('user_prompt', "uncap the pen")
+        # self.declare_parameter('user_prompt', "put bux")
         self.declare_parameter('max_limit_num', 50)
-        self.declare_parameter('state_sub_topic_name', "/joint_states")
+        self.declare_parameter('state_sub_topic_name', "/piper/qpos")
         self.declare_parameter('camera_topic_name', '/camera/camera/color/image_raw')
         self.declare_parameter('camera_left_topic_name', '/camera_left/camera_left/color/image_raw')
         self.declare_parameter('camera_right_topic_name', '/camera_right/camera_right/color/image_raw')
         self.declare_parameter('embodiment', None)  # 本体类型，默认值为 None
+        self.declare_parameter('action_pub_topic', '/aliciaD/action')
+        self.declare_parameter('action_pub_frequency', 30.0)  # Hz
 
         self.user_prompt = self.get_parameter('user_prompt').get_parameter_value().string_value
         self.max_limit_num = self.get_parameter('max_limit_num').get_parameter_value().integer_value
@@ -50,6 +55,8 @@ class OpenpiRuntimeNode(Node):
         self.camera_left_topic_name = self.get_parameter('camera_left_topic_name').get_parameter_value().string_value
         self.camera_right_topic_name = self.get_parameter('camera_right_topic_name').get_parameter_value().string_value
         self.embodiment = self.get_parameter('embodiment').get_parameter_value().string_value
+        self.action_pub_topic = self.get_parameter('action_pub_topic').get_parameter_value().string_value
+
 
         self.get_logger().warn(
             f"""
@@ -57,6 +64,7 @@ class OpenpiRuntimeNode(Node):
 user_prompt             : {self.user_prompt}
 max_limit_num           : {self.max_limit_num}
 state_sub_topic_name    : {self.state_sub_topic_name}
+action_pub_topic        : {self.action_pub_topic}
 camera_topic_name       : {self.camera_topic_name}
 camera_left_topic_name  : {self.camera_left_topic_name}
 camera_right_topic_name : {self.camera_right_topic_name}
@@ -67,53 +75,18 @@ camera_right_topic_name : {self.camera_right_topic_name}
         # 2. arm status
         self.state_queue = queue.Queue(maxsize=100)
         self.state_sub = self.create_subscription(
-            JointState, 
+            Float32MultiArray, 
             self.state_sub_topic_name, 
             lambda msg: self.state_queue.put(msg),
-            10
+            3
         )
 
-        # init embodiment
-        if self.embodiment == "" or self.embodiment is None:
-            pass
-        elif self.embodiment == "piper":
-            from piper_sdk import C_PiperInterface_V2
-            # from openpi_runtime.embodiments.piper.piper import piper_enable
-
-            self.left_arm = C_PiperInterface_V2("can_piper")
-            self.left_arm.ConnectPort()
-            '''
-            使能机械臂并检测使能状态,尝试5秒,超时则退出
-            '''
-            timeout = 5
-            start_time = time.time()
-
-            while True:
-                low_msg = self.left_arm.GetArmLowSpdInfoMsgs()
-                enabled = all([
-                    low_msg.motor_1.foc_status.driver_enable_status,
-                    low_msg.motor_2.foc_status.driver_enable_status,
-                    low_msg.motor_3.foc_status.driver_enable_status,
-                    low_msg.motor_4.foc_status.driver_enable_status,
-                    low_msg.motor_5.foc_status.driver_enable_status,
-                    low_msg.motor_6.foc_status.driver_enable_status
-                ])
-                print("--------------------")
-                print("使能状态:", enabled)
-                if enabled:
-                    return 0
-                    break
-                self.left_arm.EnableArm(7)
-                self.left_arm.GripperCtrl(0, 1000, 0x01, 0)
-                if time.time() - start_time > timeout:
-                    print("使能超时，退出程序")
-                    return 1
-                    sys.exit(1)
-                time.sleep(1)
-
-
-
-
+        # arm control
+        self.action_publisher = self.create_publisher(
+            Float32MultiArray,
+            self.action_pub_topic,
+            3
+        )
 
         # 3. image tensor setting
         self.bridge = cv_bridge.CvBridge()
@@ -242,37 +215,93 @@ camera_right_topic_name : {self.camera_right_topic_name}
         #     return True
         return False
 
-    def get_arm_state(self, campare_stamp):
-        state = np.zeros((1, 14), dtype=np.float64)
-        if self.embodiment == "" or self.embodiment == None:
-            if self.state_queue.empty():
-                return None
-            state = self.state_queue.get().position
-            state = np.array(state).reshape(1, 14)
-            
-        elif self.embodiment == "piper":
-            left_arm_msg = self.left_arm.GetArmJointMsgs()
-            left_gripper_msg = self.left_arm.GetArmGripperMsgs()
-            state[0, 0] = float(left_arm_msg.joint_state.joint_1) / 1000.0
-            state[0, 1] = float(left_arm_msg.joint_state.joint_2) / 1000.0
-            state[0, 2] = float(left_arm_msg.joint_state.joint_3) / 1000.0
-            state[0, 3] = float(left_arm_msg.joint_state.joint_4) / 1000.0
-            state[0, 4] = float(left_arm_msg.joint_state.joint_5) / 1000.0
-            state[0, 5] = float(left_arm_msg.joint_state.joint_6) / 1000.0
-            state[0, 6] = float(left_gripper_msg.gripper_state.grippers_angle) / 1000.0
 
-        return state
+
+    def get_arm_state(self, campare_stamp):
+        """获取机械臂状态，只处理7维Float32MultiArray消息并扩展为14维"""
+        
+        # 如果队列为空，返回None
+        if self.state_queue.empty():
+            self.get_logger().debug("状态队列为空，无法获取机械臂状态")
+            return None
+        
+        try:
+            # 从队列获取最新状态消息
+            state_msg = self.state_queue.get_nowait()
+            
+            # 检查消息类型是否为Float32MultiArray
+            if not hasattr(state_msg, 'data'):
+                self.get_logger().error(f"消息类型错误: 期望Float32MultiArray，实际{type(state_msg)}")
+                return None
+            
+            # 获取数据维度
+            data_len = len(state_msg.data)
+            
+            # 只处理7维数据
+            if data_len != 7:
+                self.get_logger().error(
+                    f"状态数据维度错误: 期望7维(/piper/qpos)，实际{data_len}维。数据: {state_msg.data}"
+                )
+                return None
+            
+            # 7维数据，假设是左臂数据，右臂补0
+            state = np.zeros((1, 14), dtype=np.float64)
+            state[0, 0:7] = state_msg.data[:7]  # 左臂7维
+            state[0, 7:14] = 0.0  # 右臂补0
+            
+            # 打印状态信息
+            # self.get_logger().info(
+            #     f"获取机械臂状态(7维扩展为14维) - "
+            #     f"左臂关节: [{state[0, 0]:.3f}, {state[0, 1]:.3f}, {state[0, 2]:.3f}, "
+            #     f"{state[0, 3]:.3f}, {state[0, 4]:.3f}, {state[0, 5]:.3f}] "
+            #     f"夹爪: {state[0, 6]:.3f} | "
+            #     f"右臂: 全0"
+            # )
+            
+            return state
+            
+        except queue.Empty:
+            # 队列为空时返回None
+            self.get_logger().debug("状态队列已空")
+            return None
+        except Exception as e:
+            # 其他异常处理
+            self.get_logger().error(f"获取机械臂状态时发生异常: {e}", exc_info=True)
+            return None
 
     def arm_control(self, prompt, arm_type="left"):
-        if self.embodiment == "" or self.embodiment == None:
+        if arm_type == "left":
+            self.get_logger().info(f"left arm")
+            self.get_logger().info(f"arm_control接收到prompt: {prompt}")
+            # self.get_logger().info(f"prompt类型: {type(prompt)}")
+            # if hasattr(prompt, 'shape'):
+            #     self.get_logger().info(f"prompt形状: {prompt.shape}")
+            # else:
+            #     self.get_logger().info(f"prompt长度: {len(prompt)}")
+
+            left_action = np.array(prompt)
+            # 创建Float32MultiArray消息
+            action_msg = Float32MultiArray()
+            action_msg.data = [float(x) for x in left_action]
+            
+            # 发布动作
+            self.action_publisher.publish(action_msg)
+            
+        elif arm_type == "right":
             pass
-        elif self.embodiment == "piper": 
-            from openpi_runtime.piper.piper import pi0_control_piper
-            if arm_type == "left":
-                pi0_control_piper(self.left_arm, prompt)
-            elif arm_type == "right":
-                pass
+            # self.get_logger().info(f"right arm")
+
+        # if self.embodiment == "" or self.embodiment == None:
+        #     pass
+        # elif self.embodiment == "piper": 
+        #     from openpi_runtime.piper.piper import pi0_control_piper
+        #     if arm_type == "left":
+        #         pi0_control_piper(self.left_arm, prompt)
+        #     elif arm_type == "right":
+        #         pass
         return 0
+
+
 
 # ===================== main =====================
 

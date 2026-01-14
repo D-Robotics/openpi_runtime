@@ -246,84 +246,17 @@ camera_right_topic_name : /camera_right/camera_right/color/image_raw
 
 
 # 数采
-##  数采链路
 首先启动piper_node和aliciaD_node，确认piper机械臂能够被aliciaD示教，然后使用rosbag的保存命令保存话题信息。
 
-piper、aliciaD节点发布话题 -> rosbag -> .hdf5
+数采链路为：
+相机、piper、aliciaD节点发布话题 -> rosbag -> .hdf5
+
+详细的数采操作：
+[数采](./openpi_runtime/data_collection/data_collection.md)
 
 
-## 启动相关节点
-### 相机节点
-启动文档见文档
-
-### piper_node
-
+# x86推理，RDKs600执行
+在x86端启动推理服务，在RDK端运行以下命令：
 ```bash
-export ROS_DOMAIN_ID=40
-export COLCON_CURRENT_PREFIX=./install
-source /opt/ros/jazzy/setup.bash
-source ./install/setup.bash
-
-python3 install/lib/openpi_runtime/piper_node
-```
-
-
-### aliciaD_node
-```bash
-export COLCON_CURRENT_PREFIX=./install
-source /opt/ros/jazzy/setup.bash
-source ./install/setup.bash
-export ROS_DOMAIN_ID=40
-
-python3 install/lib/openpi_runtime/aliciaD_node
-
-```
-
-## 录制话题信息
-录制以下话题：
-```
-"/aliciaD/action"
-"/piper/qpos" 
-"/camera/camera/color/image_raw"
-"/camera_left/camera_left/color/image_raw"
-```
-
-
-不要保存到网络挂载的文件夹，磁盘读写速度跟不上保存速度，会有严重的丢包。
-
-录制话题信息的命令如下：
-```bash
-#!/bin/bash
-
-# 配置路径
-BAG_NAME="rosbag2_$(date +%Y%m%d_%H%M%S)"
-SOURCE_DIR="/mnt/wang.liu/mnt/datasets"                 
-
-# 执行录制
-ros2 bag record \
-  --output "$BAG_NAME" \
-  --storage mcap \
-  --max-cache-size 1000000000 \
-  --max-bag-size 104857600 \
-  --compression-mode file \
-  --compression-format zstd \
-  --topics \
-    /aliciaD/action \
-    /piper/qpos \
-    /camera/camera/color/image_raw \
-    /camera_left/camera_left/color/image_raw
-
-```
-
-## replay录制的数据集
-关闭aliciaD_node，回放/aliciaD/action话题。piper会重复录制的动作
-```bash
-ros2 bag play rosbag2_20260101_154003/ --topics /aliciaD/action
-```
-
-
-## convert
-```bash
-python bag_2_hdf5.py
-python rename_hdf5.py
+python run_piper_x86.py --host 120.48.157.2 --port 55536
 ```

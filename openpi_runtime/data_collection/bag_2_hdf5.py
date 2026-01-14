@@ -16,6 +16,7 @@ import yaml
 from typing import Dict, List, Tuple, Optional, Any
 from dataclasses import dataclass
 from pathlib import Path
+import argparse
 
 # ROS2相关导入
 import rosbag2_py
@@ -646,16 +647,50 @@ def check_dependencies():
     
     return True
 
+def parse_arguments():
+    """解析命令行参数"""
+    parser = argparse.ArgumentParser(
+        description='将ROS bag数据转换为HDF5格式',
+        formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    
+    # 添加输入输出目录参数
+    parser.add_argument(
+        '-i', '--input-dir',
+        type=str,
+        default='/mnt/wang.liu/mnt/datasets',
+        help='输入目录路径 (默认: %(default)s)'
+    )
+    
+    parser.add_argument(
+        '-o', '--output-dir',
+        type=str,
+        default='/mnt/wang.liu/mnt/datasets_hdf5',
+        help='输出目录路径 (默认: %(default)s)'
+    )
+    
+    # 可选：添加target_fps参数
+    parser.add_argument(
+        '-f', '--target-fps',
+        type=int,
+        default=50,
+        help='目标帧率 (默认: %(default)d)'
+    )
+    
+    return parser.parse_args()
 
 def main():
     """主函数"""
     # 检查依赖
     if not check_dependencies():
         sys.exit(1)
-    
-    # 输入输出目录（根据你的实际路径修改）
-    INPUT_DIR = '/mnt/wang.liu/mnt/datasets'  # 修改为你的实际输入目录
-    OUTPUT_DIR = '/mnt/wang.liu/mnt/datasets_hdf5'  # 修改为你的实际输出目录
+
+    # 解析命令行参数
+    args = parse_arguments()
+
+    # 从命令行参数获取输入输出目录
+    INPUT_DIR = args.input_dir
+    OUTPUT_DIR = args.output_dir
     
     # 检查输入目录
     if not Path(INPUT_DIR).exists():
