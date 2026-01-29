@@ -95,6 +95,8 @@ class AliciaDNode(Node):
         self.declare_parameter('robot_version', kwargs.get('robot_version', 'v5_6'))
         self.declare_parameter('robot_type', kwargs.get('robot_type', 'follower'))
         self.declare_parameter('gripper_type', kwargs.get('gripper_type', '50mm'))
+        self.declare_parameter('use_filter', kwargs.get('use_filter', False))
+        self.declare_parameter('filter_alpha', kwargs.get('filter_alpha', 0.1))
         
         # 2. 获取参数值
         self.publish_topic = self.get_parameter('publish_topic').get_parameter_value().string_value
@@ -105,6 +107,8 @@ class AliciaDNode(Node):
         self.robot_version = self.get_parameter('robot_version').get_parameter_value().string_value
         self.robot_type = self.get_parameter('robot_type').get_parameter_value().string_value
         self.gripper_type = self.get_parameter('gripper_type').get_parameter_value().string_value
+        self.use_filter = self.get_parameter('use_filter').get_parameter_value().bool_value
+        self.filter_alpha = self.get_parameter('filter_alpha').get_parameter_value().double_value
         
         # 3. 打印参数信息
         self.get_logger().info(
@@ -118,6 +122,8 @@ gripper_threshold  : {self.gripper_threshold}
 robot_version      : {self.robot_version}
 robot_type         : {self.robot_type}
 gripper_type       : {self.gripper_type}
+use_filter         : {self.use_filter}
+filter_alpha       : {self.filter_alpha}
 ================================================
             """
         )
@@ -140,10 +146,13 @@ gripper_type       : {self.gripper_type}
         self.current_joints = [0.0] * 6  # 6个关节
         self.current_gripper = 0.0
         
-        # 7. 机器人实例
+        # 7. 滤波器状态
+        self.filtered_joints = [0.0] * 6  # 滤波后的关节值
+        
+        # 8. 机器人实例
         self.robot = None
         
-        # 8. 初始化机器人连接
+        # 9. 初始化机器人连接
         self.init_robot()
         
         self.get_logger().info(f'AliciaD节点已启动，发布频率: {self.publish_rate}Hz')
@@ -219,10 +228,21 @@ gripper_type       : {self.gripper_type}
             self.current_joints = joints
             self.current_gripper = gripper
         
+        # 应用滤波
+        if self.use_filter:
+            # 一阶低通滤波: filtered = alpha * new + (1 - alpha) * previous
+            for i in range(6):
+                self.filtered_joints[i] = self.filter_alpha * joints[i] + (1 - self.filter_alpha) * self.filtered_joints[i]
+            # 使用滤波后的数据
+            publish_joints = self.filtered_joints
+        else:
+            # 不使用滤波，直接使用原始数据
+            publish_joints = joints
+        
         # 创建消息
         msg = Float32MultiArray()
         # 数据格式: [j1, j2, j3, j4, j5, j6, gripper]
-        msg.data = list(joints) + [gripper]
+        msg.data = list(publish_joints) + [gripper]
         
         # 发布消息
         self.publisher_.publish(msg)
@@ -234,7 +254,10 @@ gripper_type       : {self.gripper_type}
             self._publish_count = 0
             
         if self._publish_count % 10 == 0:
-            self.get_logger().debug(f'发布状态: 关节={joints}, 夹爪={gripper}')
+            if self.use_filter:
+                self.get_logger().debug(f'发布状态(已滤波): 关节={publish_joints}, 夹爪={gripper}')
+            else:
+                self.get_logger().debug(f'发布状态: 关节={joints}, 夹爪={gripper}')
     
     def destroy_node(self):
         """节点销毁时清理资源"""
@@ -261,6 +284,10 @@ def parse_arguments():
                        help='波特率 (默认: 1000000)')
     parser.add_argument('--gripper_threshold', type=int, default=70,
                        help='夹爪二值化阈值 (默认: 70)')
+    parser.add_argument('--use_filter', type=bool, default=False,
+                       help='是否使用滤波 (默认: False)')
+    parser.add_argument('--filter_alpha', type=float, default=0.1,
+                       help='滤波系数 (默认: 0.1)')
     
     return parser.parse_args()
 
@@ -299,7 +326,9 @@ def main(args=None):
             'publish_rate': cli_args.publish_rate,
             'port': cli_args.port,
             'baudrate': cli_args.baudrate,
-            'gripper_threshold': cli_args.gripper_threshold
+            'gripper_threshold': cli_args.gripper_threshold,
+            'use_filter': cli_args.use_filter,
+            'filter_alpha': cli_args.filter_alpha
         }
         node = AliciaDNode(**node_params)
     

@@ -1,0 +1,581 @@
+import dataclasses
+import enum
+import logging
+import time
+import sys
+import threading
+from typing import Dict, Optional, Union, List, Tuple
+
+import numpy as np
+from utils import websocket_client_policy as _websocket_client_policy
+import tyro
+
+# ==================== 导入ROS2相关 ====================
+import rclpy
+from rclpy.node import Node
+from rclpy.qos import QoSProfile, QoSReliabilityPolicy, QoSDurabilityPolicy
+from sensor_msgs.msg import Image
+from std_msgs.msg import Float32MultiArray
+import cv2
+import cv_bridge
+# ====================================================
+
+logger = logging.getLogger(__name__)
+
+class EnvMode(enum.Enum):
+    """支持的模式"""
+    PIPER = "piper"  # 连接真实Piper机械臂
+
+@dataclasses.dataclass
+class Args:
+    """命令行参数"""
+    # host: str = "120.48.157.2"
+    host: str = "120.48.87.60" # a100
+    port: int | None = 55536
+    api_key: str | None = None
+    num_steps: int = 50*25
+    env: EnvMode = EnvMode.PIPER
+    verbose: bool = False  # 是否打印详细推理结果
+    
+    # 图像话题配置 - 只配置实际存在的两个摄像头
+    camera_topics: Dict[str, str] = dataclasses.field(default_factory=lambda: {
+        "cam_high": "/camera/camera/color/image_raw",
+        "cam_left_wrist": "/camera_left/camera_left/color/image_raw",
+    })
+    
+    # 服务器期望的所有摄像头（4个）
+    expected_cameras: tuple = ("cam_high", "cam_low", "cam_left_wrist", "cam_right_wrist")
+    
+    # 机械臂状态话题
+    qpos_topic: str = "/piper/qpos"
+    
+    # 动作发布话题
+    action_topic: str = "/aliciaD/action"
+    
+    action_chunk_size: int = 50  # 策略返回的动作序列长度
+    wait_timeout: float = 10.0  # 等待数据的超时时间
+    sync_time_window: float = 0.1  # 图像同步时间窗口（秒）
+
+class ImageBuffer:
+    """图像缓冲区，用于存储和处理摄像头图像"""
+    
+    def __init__(self, max_size=10):
+        self.buffer = {}
+        self.timestamps = {}
+        self.lock = threading.Lock()
+        self.max_size = max_size
+    
+    def add_image(self, camera_name: str, image_data: np.ndarray, timestamp: float):
+        """添加图像到缓冲区"""
+        with self.lock:
+            if camera_name not in self.buffer:
+                self.buffer[camera_name] = []
+                self.timestamps[camera_name] = []
+            
+            self.buffer[camera_name].append(image_data)
+            self.timestamps[camera_name].append(timestamp)
+            
+            # 保持缓冲区大小
+            if len(self.buffer[camera_name]) > self.max_size:
+                self.buffer[camera_name].pop(0)
+                self.timestamps[camera_name].pop(0)
+    
+    def get_latest_images(self, camera_names: List[str], time_window: float = 0.1) -> Dict[str, np.ndarray]:
+        """获取同步的最新图像"""
+        with self.lock:
+            # 检查所有摄像头都有数据
+            for cam in camera_names:
+                if cam not in self.buffer or len(self.buffer[cam]) == 0:
+                    return None
+            
+            # 获取最新的时间戳
+            latest_timestamps = {}
+            latest_images = {}
+            
+            for cam in camera_names:
+                latest_images[cam] = self.buffer[cam][-1]
+                latest_timestamps[cam] = self.timestamps[cam][-1]
+            
+            # 检查时间同步
+            timestamps = list(latest_timestamps.values())
+            max_time_diff = max(timestamps) - min(timestamps)
+            
+            if max_time_diff > time_window:
+                logger.warning(f"图像时间不同步: 最大差异 {max_time_diff*1000:.1f}ms > {time_window*1000:.1f}ms")
+                # 仍然返回，但记录警告
+            
+            return latest_images
+    
+    def clear(self):
+        """清空缓冲区"""
+        with self.lock:
+            self.buffer.clear()
+            self.timestamps.clear()
+
+# ==================== ROS2节点 ====================
+class PiperROSNode(Node):
+    """ROS2节点，用于订阅图像和qpos，发布action"""
+    
+    def __init__(self, args: Args):
+        super().__init__('piper_ros_node')
+        
+        # 存储参数
+        self.args = args
+        self.bridge = cv_bridge.CvBridge()
+        
+        # 存储最新的qpos数据
+        self.latest_qpos = np.zeros(7, dtype=np.float32)
+        self.qpos_received = False
+        self.qpos_valid = False
+        
+        # 图像缓冲区
+        self.image_buffer = ImageBuffer(max_size=10)
+        
+        # ==================== 订阅器 ====================
+        # 只订阅实际存在的两个摄像头话题
+        self.camera_topics = args.camera_topics
+        self.image_subscribers = {}
+        self.image_received = {cam: False for cam in self.camera_topics.keys()}
+        
+        for cam_name, topic in self.camera_topics.items():
+            # 设置合适的QoS配置
+            qos_profile = QoSProfile(
+                reliability=QoSReliabilityPolicy.BEST_EFFORT,
+                durability=QoSDurabilityPolicy.VOLATILE,
+                depth=10
+            )
+            
+            self.image_subscribers[cam_name] = self.create_subscription(
+                Image,
+                topic,
+                lambda msg, cam=cam_name: self._image_callback(msg, cam),
+                qos_profile
+            )
+            logger.info(f"已订阅摄像头话题 {cam_name}: {topic}")
+        
+        # 订阅机械臂状态话题
+        qos_profile = QoSProfile(
+            reliability=QoSReliabilityPolicy.RELIABLE,
+            durability=QoSDurabilityPolicy.VOLATILE,
+            depth=10
+        )
+        
+        self.qpos_subscriber = self.create_subscription(
+            Float32MultiArray,
+            args.qpos_topic,
+            self._qpos_callback,
+            qos_profile
+        )
+        logger.info(f"已订阅机械臂状态话题: {args.qpos_topic}")
+        
+        # ==================== 发布器 ====================
+        # 发布动作到aliciaD
+        try:
+            self.action_publisher = self.create_publisher(
+                Float32MultiArray,
+                args.action_topic,
+                10
+            )
+            logger.info(f"已创建动作发布话题: {args.action_topic}")
+            self.publisher_created = True
+        except Exception as e:
+            logger.error(f"创建动作发布话题失败: {e}")
+            self.publisher_created = False
+        
+        # 消息计数器
+        self.image_count = {cam: 0 for cam in self.camera_topics.keys()}
+        self.qpos_count = 0
+        
+        # 启动时间
+        self.start_time = time.time()
+    
+    def _image_callback(self, msg: Image, cam_name: str):
+        """图像回调函数"""
+        try:
+            current_time = time.time()
+            
+            # 转换图像
+            cv_image = self.bridge.imgmsg_to_cv2(msg, desired_encoding='rgb8')
+            
+            # 调整大小
+            cv_image = cv2.resize(cv_image, (224, 224))
+            
+            # 转换为CHW格式
+            image_chw = cv_image.transpose(2, 0, 1).astype(np.uint8)
+            
+            # 添加到缓冲区
+            self.image_buffer.add_image(cam_name, image_chw, current_time)
+            
+            # 更新计数
+            self.image_count[cam_name] += 1
+            
+            # 标记该摄像头已收到数据
+            self.image_received[cam_name] = True
+            
+            if self.image_count[cam_name] % 30 == 0:
+                logger.info(f"收到 {cam_name} 图像 (总数: {self.image_count[cam_name]})")
+                
+        except Exception as e:
+            logger.error(f"处理 {cam_name} 图像回调失败: {e}")
+            raise
+    
+    def _qpos_callback(self, msg: Float32MultiArray):
+        """机械臂状态回调函数"""
+        try:
+            if len(msg.data) >= 7:
+                self.latest_qpos = np.array(msg.data[:7], dtype=np.float32)
+                self.qpos_received = True
+                self.qpos_valid = True
+                self.qpos_count += 1
+                
+                if self.qpos_count % 50 == 0:
+                    logger.info(f"收到机械臂状态 (总数: {self.qpos_count}): {self.latest_qpos}")
+            else:
+                logger.error(f"qpos数据维度不足: {len(msg.data)} < 7")
+                self.qpos_valid = False
+                raise ValueError(f"qpos数据维度不足: {len(msg.data)} < 7")
+                
+        except Exception as e:
+            logger.error(f"处理qpos回调失败: {e}")
+            self.qpos_valid = False
+            raise
+    
+    def get_synced_images(self) -> Dict[str, np.ndarray]:
+        """获取图像数据并构建服务器期望的4摄像头格式"""
+        # 获取实际存在的摄像头的图像
+        actual_cameras = list(self.camera_topics.keys())
+        latest_images = self.image_buffer.get_latest_images(actual_cameras, self.args.sync_time_window)
+        
+        if latest_images is None:
+            raise RuntimeError("无法获取实际摄像头的图像数据")
+        
+        images = {}
+        
+        # 处理实际存在的摄像头
+        for cam_key in actual_cameras:
+            if cam_key in latest_images:
+                images[cam_key] = latest_images[cam_key]
+            else:
+                raise RuntimeError(f"必须的摄像头 {cam_key} 图像数据缺失")
+        
+        # 为缺失的摄像头创建黑图
+        for cam_key in self.args.expected_cameras:
+            if cam_key not in images:
+                logger.info(f"为缺失的摄像头 {cam_key} 创建黑图")
+                images[cam_key] = np.zeros((3, 224, 224), dtype=np.uint8)
+        
+        return images
+    
+    def get_qpos(self) -> np.ndarray:
+        """获取机械臂状态"""
+        if not self.qpos_valid:
+            raise RuntimeError("机械臂状态无效或未收到")
+        return self.latest_qpos.copy()
+    
+    def publish_action(self, action: np.ndarray):
+        """发布动作到aliciaD"""
+        if not self.publisher_created:
+            raise RuntimeError("动作发布话题未创建")
+        
+        try:
+            if len(action) < 7:
+                raise ValueError(f"动作维度不足: {len(action)} < 7")
+            
+            # 提取前7维
+            action_7d = action[:7]
+            
+            # 创建消息
+            msg = Float32MultiArray()
+            msg.data = action_7d.tolist()
+            
+            # 发布
+            self.action_publisher.publish(msg)
+            
+            if self.args.verbose:
+                logger.info(f"发布动作: {action_7d}")
+                
+        except Exception as e:
+            logger.error(f"发布动作失败: {e}")
+            raise
+    
+    def spin_once(self):
+        """处理一次ROS2回调"""
+        rclpy.spin_once(self, timeout_sec=0.001)
+    
+    def wait_for_data(self, timeout: float) -> bool:
+        """等待所有数据就绪"""
+        start_time = time.time()
+        
+        while time.time() - start_time < timeout:
+            self.spin_once()
+            
+            # 检查所有必须的摄像头是否都收到了数据
+            all_images_received = all(self.image_received.values())
+            
+            # 检查机械臂状态是否收到且有效
+            qpos_ready = self.qpos_received and self.qpos_valid
+            
+            # 检查发布器是否创建成功
+            publisher_ready = self.publisher_created
+            
+            if all_images_received and qpos_ready and publisher_ready:
+                logger.info("所有数据都已就绪！")
+                logger.info(f"摄像头接收情况: {self.image_received}")
+                logger.info(f"机械臂状态已接收: {self.qpos_received}")
+                logger.info(f"动作发布器已创建: {self.publisher_created}")
+                return True
+            
+            # 显示进度
+            elapsed = time.time() - start_time
+            if elapsed % 2.0 < 0.1:  # 每2秒打印一次
+                logger.info(f"等待数据中... 已等待 {elapsed:.1f}秒")
+                logger.info(f"摄像头接收情况: {self.image_received}")
+                logger.info(f"机械臂状态已接收: {self.qpos_received} (有效: {self.qpos_valid})")
+                logger.info(f"动作发布器已创建: {self.publisher_created}")
+            
+            time.sleep(0.01)
+        
+        logger.error(f"等待数据超时 ({timeout}秒)")
+        logger.error(f"摄像头接收情况: {self.image_received}")
+        logger.error(f"机械臂状态已接收: {self.qpos_received} (有效: {self.qpos_valid})")
+        logger.error(f"动作发布器已创建: {self.publisher_created}")
+        return False
+
+def _get_piper_observation(ros_node: PiperROSNode) -> dict:
+    """获取Piper观测数据"""
+    # 获取机械臂状态
+    try:
+        left_arm_state = ros_node.get_qpos()
+    except Exception as e:
+        raise RuntimeError(f"获取机械臂状态失败: {e}")
+    
+    # 构建14维状态向量（左臂7维 + 右臂7维填充0）
+    full_state = np.concatenate([left_arm_state, np.zeros(7)])
+    
+    # 打印状态数据
+    logger.info(f"发送到服务器的状态数据:")
+    logger.info(f"  关节角度: {left_arm_state[:6]}")
+    logger.info(f"  夹爪位置: {left_arm_state[6]:.3f}")
+    logger.info(f"  完整状态向量(14维): {full_state}")
+
+    # 获取图像
+    try:
+        images = ros_node.get_synced_images()
+    except Exception as e:
+        raise RuntimeError(f"获取图像数据失败: {e}")
+    
+    # 检查是否包含所有需要的摄像头
+    required_cameras = ros_node.args.expected_cameras
+    missing_cameras = [cam for cam in required_cameras if cam not in images]
+    
+    if missing_cameras:
+        raise RuntimeError(f"缺少以下摄像头的图像数据: {missing_cameras}")
+    
+    # 检查图像形状
+    for cam_name, img in images.items():
+        if img.shape != (3, 224, 224):
+            raise RuntimeError(f"摄像头 {cam_name} 图像形状错误: {img.shape}，期望 (3, 224, 224)")
+    
+    logger.info(f"成功获取所有 {len(images)} 个摄像头图像")
+    
+    return {
+        "state": full_state.astype(np.float32),
+        "images": images,
+        "prompt": "put the box",  # TODO: 支持动态指令输入
+    }
+
+def main(args: Args) -> None:
+    """主函数"""
+    
+    # 初始化ROS2
+    logger.info("初始化ROS2...")
+    rclpy.init()
+    
+    try:
+        ros_node = PiperROSNode(args)
+    except Exception as e:
+        logger.error(f"创建ROS节点失败: {e}")
+        sys.exit(1)
+    
+    # 等待初始数据
+    logger.info(f"等待初始数据 (超时: {args.wait_timeout}秒)...")
+    
+    if not ros_node.wait_for_data(args.wait_timeout):
+        logger.error("无法获取到所有必要的数据，程序退出")
+        try:
+            ros_node.destroy_node()
+        except:
+            pass
+        rclpy.shutdown()
+        sys.exit(1)
+    
+    logger.info("所有数据准备就绪，开始连接服务器...")
+    
+    # 创建策略客户端
+    try:
+        policy = _websocket_client_policy.WebsocketClientPolicy(
+            host=args.host,
+            port=args.port,
+            api_key=args.api_key,
+        )
+        logger.info(f"服务器元数据: {policy.get_server_metadata()}")
+    except Exception as e:
+        logger.error(f"连接服务器失败: {e}")
+        ros_node.destroy_node()
+        rclpy.shutdown()
+        sys.exit(1)
+    
+    # 预热模型
+    logger.info("预热模型...")
+    for i in range(2):
+        try:
+            obs = _get_piper_observation(ros_node)
+            action = policy.infer(obs)
+            if args.verbose:
+                logger.info(f"预热步骤 {i+1}: 动作形状 {action['actions'].shape}")
+        except Exception as e:
+            logger.error(f"预热失败: {e}", exc_info=True)
+            ros_node.destroy_node()
+            rclpy.shutdown()
+            sys.exit(1)
+    
+    # 主循环
+    logger.info(f"开始运行 {args.num_steps} 步...")
+    
+    try:
+        for step in range(args.num_steps):
+            step_start = time.time()
+            logger.info(f"\n=== 开始循环步骤 {step + 1}/{args.num_steps} ===")
+            
+            try:
+                # 步骤0: 第一次手动确认 - 是否开始采集数据
+                logger.info(f"\n[步骤0] 手动确认...")
+                logger.info("请确认是否开始采集数据？")
+                confirm_start = input("输入 'y' 开始采集，输入其他键取消: ")
+                if confirm_start.lower() != 'y':
+                    logger.info("用户取消采集，跳过本次循环")
+                    continue
+                
+                # 步骤1: 收集数据
+                logger.info(f"\n[步骤1] 收集数据...")
+                
+                # 确保获取最新的数据
+                for _ in range(50):
+                    ros_node.spin_once()
+                    time.sleep(0.01)
+                
+                # 获取观测数据
+                obs_start = time.time()
+                observation = _get_piper_observation(ros_node)
+                obs_time = time.time() - obs_start
+                logger.info(f"✓ 数据收集完成，耗时: {obs_time*1000:.1f}ms")
+                
+                # 步骤1.5: 显示采集的数据内容
+                logger.info(f"\n[步骤1.5] 显示采集的数据...")
+                logger.info(f"采集到的状态数据:")
+                logger.info(f"  关节角度: {observation['state'][:6]}")
+                logger.info(f"  夹爪位置: {observation['state'][6]:.3f}")
+                logger.info(f"  完整状态向量: {observation['state']}")
+                logger.info(f"采集到的图像数据:")
+                for cam_name, img in observation['images'].items():
+                    logger.info(f"  {cam_name}: 形状={img.shape}, 数据类型={img.dtype}")
+                logger.info(f"任务提示词: {observation['prompt']}")
+                
+                # 步骤2: 第二次手动确认 - 是否发送数据
+                logger.info(f"\n[步骤2] 手动确认...")
+                logger.info("请确认是否发送推理数据？")
+                confirm_send = input("输入 'y' 发送数据，输入其他键重新采集: ")
+                if confirm_send.lower() != 'y':
+                    logger.info("用户取消发送，重新采集数据")
+                    # 跳过后续步骤，重新开始循环
+                    continue
+                
+                # 步骤3: 发送推理数据
+                logger.info(f"\n[步骤3] 发送推理数据...")
+                infer_start = time.time()
+                action_result = policy.infer(observation)
+                infer_time = time.time() - infer_start
+                logger.info(f"✓ 推理完成，耗时: {infer_time*1000:.1f}ms")
+                
+                # 提取动作序列
+                action_queue = action_result['actions']
+                
+                # 验证动作格式
+                if not isinstance(action_queue, np.ndarray):
+                    raise TypeError(f"动作类型错误: {type(action_queue)}")
+                
+                logger.info(f"获取动作序列: 形状 {action_queue.shape}, 步数 {len(action_queue)}")
+                
+                # 保存推理结果为.npy文件
+                save_path = f"infer_result_{step+1}.npy"
+                np.save(save_path, action_queue)
+                logger.info(f"✓ 推理结果已保存到: {save_path}, 形状: {action_queue.shape}")
+                
+                # 步骤4: 执行所有动作
+                logger.info(f"\n[步骤4] 执行动作序列...")
+                
+                for i, current_action in enumerate(action_queue):
+                    # 确保动作格式正确
+                    if current_action.ndim != 1 or len(current_action) != 14:
+                        raise ValueError(f"动作维度错误: {current_action.shape}, 期望 (14,)")
+                    
+                    logger.info(f"  执行动作 {i + 1}/{len(action_queue)}, 前7维: {current_action[:7]}")
+                    
+                    # 发布控制命令
+                    try:
+                        ros_node.publish_action(current_action)
+                    except Exception as e:
+                        logger.error(f"发布动作失败: {e}")
+                        # 继续运行，尝试下一个动作
+                    
+                    # 小延时，确保动作按顺序执行
+                    time.sleep(0.05)
+                
+                logger.info(f"✓ 动作序列执行完成，共 {len(action_queue)} 步")
+                
+                # 步骤5: 等待动作发送完毕
+                logger.info(f"\n[步骤5] 等待动作发送完毕...")
+                # time.sleep(0.5)
+                logger.info(f"✓ 动作发送完毕")
+                
+                # 步骤6: 延时1秒
+                logger.info(f"\n[步骤6] 延时1秒...")
+                # time.sleep(1.0)
+                logger.info(f"✓ 延时完成")
+                
+                # 处理ROS2回调
+                ros_node.spin_once()
+                
+                step_time = time.time() - step_start
+                logger.info(f"\n=== 循环步骤 {step + 1} 完成，耗时: {step_time:.2f}s ===")
+                
+            except Exception as e:
+                logger.error(f"循环步骤执行失败: {e}", exc_info=True)
+                # 继续运行，下次循环再尝试
+                continue
+    
+    except KeyboardInterrupt:
+        logger.info("用户中断程序")
+    except Exception as e:
+        logger.error(f"主循环异常: {e}", exc_info=True)
+    finally:
+        # 清理资源
+        logger.info("清理资源...")
+        try:
+            counts = ros_node.image_count
+            logger.info(f"摄像头消息统计: {counts}, qpos消息统计: {ros_node.qpos_count}")
+            ros_node.destroy_node()
+            if rclpy.ok():
+                rclpy.shutdown()
+            logger.info("ROS2节点已销毁")
+        except Exception as e:
+            logger.error(f"清理资源失败: {e}")
+    
+    logger.info("运行完成")
+
+if __name__ == "__main__":
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(levelname)s - %(message)s'
+    )
+    main(tyro.cli(Args))

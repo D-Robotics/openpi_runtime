@@ -19,6 +19,18 @@ ros2 launch realsense2_camera rs_launch.py serial_no:='_234322306420' camera_nam
 ```
 
 
+### fake_cameta
+```bash
+export COLCON_CURRENT_PREFIX=./install
+source /opt/ros/jazzy/setup.bash
+source ./install/setup.bash
+export ROS_DOMAIN_ID=40
+python3 install/lib/openpi_runtime/camera_fake_node --width 640 --height 480 --publish_rate 50
+```
+
+
+
+
 ### piper
 ```bash
 export COLCON_CURRENT_PREFIX=./install
@@ -39,6 +51,9 @@ python3 install/lib/openpi_runtime/piper_node \
 
 ```
 
+
+
+
 ### alicia-D
 ```bash
 export COLCON_CURRENT_PREFIX=./install
@@ -52,7 +67,10 @@ python3 install/lib/openpi_runtime/aliciaD_node \
   -p publish_rate:=50.0 \
   -p port:=/dev/ttyUSB0 \
   -p baudrate:=1000000 \
-  -p gripper_threshold:=70
+  -p gripper_threshold:=70 \
+  -p use_filter:=True \
+  -p filter_alpha:=0.1
+
 ```
 
 ## 录制数据集

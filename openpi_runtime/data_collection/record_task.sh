@@ -18,4 +18,5 @@ ros2 bag record \
     /aliciaD/action \
     /piper/qpos \
     /camera/camera/color/image_raw \
-    /camera_left/camera_left/color/image_raw
+    /camera_left/camera_left/color/image_raw \
+    /camera_fake/right_wrist

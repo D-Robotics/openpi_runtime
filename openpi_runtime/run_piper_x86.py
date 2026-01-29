@@ -22,11 +22,9 @@ import cv_bridge
 
 logger = logging.getLogger(__name__)
 
-
 class EnvMode(enum.Enum):
     """支持的模式"""
     PIPER = "piper"  # 连接真实Piper机械臂
-
 
 @dataclasses.dataclass
 class Args:
@@ -34,7 +32,7 @@ class Args:
     host: str = "120.48.157.2"
     port: int | None = 55536
     api_key: str | None = None
-    num_steps: int = 10*1000
+    num_steps: int = 50*50
     env: EnvMode = EnvMode.PIPER
     verbose: bool = False  # 是否打印详细推理结果
     
@@ -53,10 +51,9 @@ class Args:
     # 动作发布话题
     action_topic: str = "/aliciaD/action"
     
-    action_chunk_size: int = 10  # 策略返回的动作序列长度
+    action_chunk_size: int = 50  # 策略返回的动作序列长度
     wait_timeout: float = 10.0  # 等待数据的超时时间
     sync_time_window: float = 0.1  # 图像同步时间窗口（秒）
-
 
 class ImageBuffer:
     """图像缓冲区，用于存储和处理摄像头图像"""
@@ -113,7 +110,6 @@ class ImageBuffer:
         with self.lock:
             self.buffer.clear()
             self.timestamps.clear()
-
 
 # ==================== ROS2节点 ====================
 class PiperROSNode(Node):
@@ -192,66 +188,19 @@ class PiperROSNode(Node):
         # 启动时间
         self.start_time = time.time()
     
-    # def _image_callback(self, msg: Image, cam_name: str):
-    #     """图像回调函数"""
-    #     try:
-    #         current_time = time.time()
-            
-    #         # 转换图像
-    #         cv_image = self.bridge.imgmsg_to_cv2(msg, desired_encoding='rgb8')
-            
-    #         # 调整大小
-    #         cv_image = cv2.resize(cv_image, (224, 224))
-            
-    #         # 转换为CHW格式
-    #         image_chw = cv_image.transpose(2, 0, 1).astype(np.uint8)
-            
-    #         # 添加到缓冲区
-    #         self.image_buffer.add_image(cam_name, image_chw, current_time)
-            
-    #         # 更新计数
-    #         self.image_count[cam_name] += 1
-            
-    #         # 标记该摄像头已收到数据
-    #         self.image_received[cam_name] = True
-            
-    #         if self.image_count[cam_name] % 30 == 0:
-    #             logger.info(f"收到 {cam_name} 图像 (总数: {self.image_count[cam_name]})")
-                
-    #     except Exception as e:
-    #         logger.error(f"处理 {cam_name} 图像回调失败: {e}")
-    #         raise
-
     def _image_callback(self, msg: Image, cam_name: str):
         """图像回调函数"""
         try:
             current_time = time.time()
+            
             # 转换图像
             cv_image = self.bridge.imgmsg_to_cv2(msg, desired_encoding='rgb8')
             
-            # 等比例缩放+填充
-            h, w = cv_image.shape[:2]
-            target_size = (224, 224)
-            
-            # 计算缩放比例
-            scale = min(target_size[0] / h, target_size[1] / w)
-            new_h, new_w = int(h * scale), int(w * scale)
-            
-            # 等比例缩放
-            resized = cv2.resize(cv_image, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
-            
-            # 创建目标图像（黑色背景）
-            padded_image = np.zeros((target_size[0], target_size[1], 3), dtype=np.uint8)
-            
-            # 计算填充位置（居中）
-            y_offset = (target_size[0] - new_h) // 2
-            x_offset = (target_size[1] - new_w) // 2
-            
-            # 将缩放后的图像放置到中心
-            padded_image[y_offset:y_offset+new_h, x_offset:x_offset+new_w] = resized
+            # 调整大小
+            cv_image = cv2.resize(cv_image, (224, 224))
             
             # 转换为CHW格式
-            image_chw = padded_image.transpose(2, 0, 1).astype(np.uint8)
+            image_chw = cv_image.transpose(2, 0, 1).astype(np.uint8)
             
             # 添加到缓冲区
             self.image_buffer.add_image(cam_name, image_chw, current_time)
@@ -391,7 +340,6 @@ class PiperROSNode(Node):
         logger.error(f"动作发布器已创建: {self.publisher_created}")
         return False
 
-
 def _get_piper_observation(ros_node: PiperROSNode) -> dict:
     """获取Piper观测数据"""
     # 获取机械臂状态
@@ -432,9 +380,8 @@ def _get_piper_observation(ros_node: PiperROSNode) -> dict:
     return {
         "state": full_state.astype(np.float32),
         "images": images,
-        "prompt": "uncap the pen",  # TODO: 支持动态指令输入
+        "prompt": "put the box",  # TODO: 支持动态指令输入
     }
-
 
 def main(args: Args) -> None:
     """主函数"""
@@ -617,7 +564,6 @@ def main(args: Args) -> None:
             logger.error(f"清理资源失败: {e}")
     
     logger.info("运行完成")
-
 
 if __name__ == "__main__":
     logging.basicConfig(

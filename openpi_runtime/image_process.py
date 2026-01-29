@@ -63,57 +63,110 @@ class ImageProcessor:
         self,
         target_size=(224, 224),
         interpolation=None,
-        pad_value=(0, 0, 0),  # 填充的颜色，默认是黑色
+        adapt_to_pi=True,
     ):
         """
-        target_size: (width, height)
+        图像处理器，将图像调整为指定大小并转换为NCHW格式
+        在adapt_to_pi=true配置下，还会进行额外的坐标转换和图像增强
+        
+        Args:
+            target_size: 目标图像尺寸 (width, height)
+            interpolation: 插值方法
+            adapt_to_pi: 是否适配pi内部运行时
         """
-        self.target_width, self.target_height = target_size
+        self.target_size = target_size
         self.interpolation = interpolation or cv2.INTER_LINEAR
-        self.pad_value = pad_value
+        self.adapt_to_pi = adapt_to_pi
+        self.resizer = ImageResizer(
+            target_size=target_size,
+            interpolation=self.interpolation
+        )
+        self.layout_converter = HWC2NCHW()
+
+    def _coordinate_system_conversion(self, img: np.ndarray) -> np.ndarray:
+        """
+        坐标系统转换：将图像坐标系从标准Aloha系统转换为pi内部运行时使用的坐标系
+        主要影响图像的旋转和镜像处理
+        
+        Args:
+            img: 输入图像 (H, W, 3), uint8
+            
+        Returns:
+            转换后的图像 (H, W, 3), uint8
+        """
+        # 镜像处理（根据pi内部运行时的要求）
+        converted_img = cv2.flip(img, 1)  # 水平镜像
+        
+        return converted_img
+
+    def _camera_parameter_adjustment(self, img: np.ndarray) -> np.ndarray:
+        """
+        相机参数调整：调整相机的内参和外参以匹配pi内部运行时的要求
+        简单实现，实际项目中可能需要更复杂的相机参数调整
+        
+        Args:
+            img: 输入图像 (H, W, 3), uint8
+            
+        Returns:
+            调整后的图像 (H, W, 3), uint8
+        """
+        # 这里可以添加相机参数调整的代码
+        # 由于没有具体的相机参数，这里暂时返回原始图像
+        return img
+
+    def _image_quality_enhancement(self, img: np.ndarray) -> np.ndarray:
+        """
+        图像质量增强：应用额外的图像增强算法以提高模型的识别准确率
+        包括亮度调整、对比度增强和噪声去除
+        
+        Args:
+            img: 输入图像 (H, W, 3), uint8
+            
+        Returns:
+            增强后的图像 (H, W, 3), uint8
+        """
+        # 亮度和对比度增强
+        alpha = 1.1  # 对比度调整因子
+        beta = 10   # 亮度调整因子
+        enhanced_img = cv2.convertScaleAbs(img, alpha=alpha, beta=beta)
+        
+        # 噪声去除
+        enhanced_img = cv2.GaussianBlur(enhanced_img, (3, 3), 0)
+        
+        return enhanced_img
 
     def process(self, img: np.ndarray) -> np.ndarray:
         """
-        img: (H, W, 3), uint8
-        return: (1, 3, 224, 224), uint8
+        处理图像，将其调整为目标大小并转换为NCHW格式
+        在adapt_to_pi=true配置下，还会进行额外的坐标转换和图像增强
+        
+        Args:
+            img: 输入图像 (H, W, 3), uint8
+            
+        Returns:
+            处理后的图像 (1, C, H, W), uint8
         """
         if not isinstance(img, np.ndarray):
             raise TypeError("Input must be a numpy.ndarray")
-
-        # 获取原始图像的宽度和高度
-        original_height, original_width = img.shape[:2]
-
-        # 计算等比例缩放的目标尺寸
-        scale = self.target_width / original_width
-        new_width = self.target_width
-        new_height = int(original_height * scale)
-
-        # 如果缩放后的高度大于目标高度，则根据目标高度重新计算缩放比例
-        if new_height > self.target_height:
-            scale = self.target_height / original_height
-            new_height = self.target_height
-            new_width = int(original_width * scale)
-
-        # 进行等比例缩放
-        img_resized = cv2.resize(img, (new_width, new_height), interpolation=self.interpolation)
-
-        # 计算填充量
-        top = (self.target_height - new_height) // 2
-        bottom = self.target_height - new_height - top
-        left = (self.target_width - new_width) // 2
-        right = self.target_width - new_width - left
-
-        # 使用填充，使图像变为目标大小
-        img_padded = cv2.copyMakeBorder(
-            img_resized, top, bottom, left, right, cv2.BORDER_CONSTANT, value=self.pad_value
-        )
-
-        # 返回处理后的图像，转为 NCHW 格式
-        # 由于填充后的图像尺寸已经是 target_size，我们直接进行通道转换
-        img_padded = img_padded.transpose(2, 0, 1)  # 转换为 (C, H, W)
-        img_padded = np.expand_dims(img_padded, axis=0)  # 增加batch维度，变为 (1, C, H, W)
-
-        return img_padded
+            
+        # 如果适配pi内部运行时，进行额外的图像处理
+        if self.adapt_to_pi:
+            # 1. 坐标系统转换
+            img = self._coordinate_system_conversion(img)
+            
+            # 2. 相机参数调整
+            img = self._camera_parameter_adjustment(img)
+            
+            # 3. 图像质量增强
+            img = self._image_quality_enhancement(img)
+        
+        # 调整图像大小
+        resized_img = self.resizer(img)
+        
+        # 转换为NCHW格式
+        nchw_img = self.layout_converter(resized_img)
+        
+        return nchw_img
 
     def __call__(self, img: np.ndarray) -> np.ndarray:
         """allow processor(img)"""

@@ -34,6 +34,7 @@ setup(
             'aliciaD_node = openpi_runtime.aliciaD_node:main',
             'piper_node = openpi_runtime.piper_node:main',
             'record_node = openpi_runtime.record_node:main',
+            'camera_fake_node = openpi_runtime.camera_fake_node:main',
         ],
     },
 )
