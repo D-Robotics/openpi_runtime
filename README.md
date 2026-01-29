@@ -321,3 +321,9 @@ ros2 bag play rosbag2_20260101_154003/ --topics /aliciaD/action
 python bag_2_hdf5.py
 python rename_hdf5.py
 ```
+
+# RDKs600 infer hbm model,full pipline
+```
+source /opt/ros/jazzy/setup.bash
+python run_pi0_s600.py
+```

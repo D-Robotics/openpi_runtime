@@ -260,3 +260,9 @@ camera_right_topic_name : /camera_right/camera_right/color/image_raw
 ```bash
 python run_piper_x86.py --host 120.48.157.2 --port 55536
 ```
+
+# RDKs600 推理 hbm 模型,完整pipline
+```
+source /opt/ros/jazzy/setup.bash
+python run_pi0_s600.py
+```

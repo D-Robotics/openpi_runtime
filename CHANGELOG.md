@@ -23,3 +23,7 @@ tros_0.1.4 (2026-1-5)
 1. Add nodes for data collection
 2. Add bag_2_hdf5.py and rename_hdf5.py for data collection
 3. Modified README
+
+tros_0.2.0 (2026-1-29)
+------------------
+1. Add .hbm model infer server
