@@ -1,0 +1,21 @@
+<?xml version="1.0"?>
+<launch>
+    <node exec="install/lib/openpi_runtime/piper_node" name="piper_node" pkg="openpi_runtime" output="screen">
+        <param name="subscribe_topic">/aliciaD/action</param>
+        <param name="publish_topic">/piper/qpos</param>
+        <param name="publish_rate">50.0</param>
+        <param name="gripper_open_value">74000</param>
+        <param name="gripper_close_value">50</param>
+        <param name="gripper_threshold">0.5</param>
+        <param name="gripper_state_threshold">64000</param>
+        <param name="gripper_torque">3500</param>
+        <param name="can_name">can0</param>
+    </node>
+    
+    <node exec="install/lib/openpi_runtime/s600_inference_node" name="s600_inference_node" pkg="openpi_runtime" output="screen">
+        <param name="norm_stats_path">/mnt/wang.liu/mount/tros_ws/src/openpi_runtime/openpi_runtime/norm_stats.json</param>
+        <param name="action_topic">/aliciaD/action</param>
+        <param name="qpos_topic">/piper/qpos</param>
+        <param name="num_steps">1250</param>
+    </node>
+</launch>

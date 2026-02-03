@@ -33,3 +33,10 @@ tros_0.2.1 (2026-2-2)
 ------------------
 1. Organized the script files under the openpi_runtime/scripts directory
 2. Add the retrieval path for the model file under the openpi_runtime/resource directory
+
+
+tros_0.2.2 (2026-2-3)
+------------------
+1. Improved the pipeline for RDKs600 to deploy pi0
+2. Optimized the action execution phase, using a first-order low-pass filter + linear interpolation algorithm to make the motion trajectory smoother
+3. Updated the acquisition methods for models and datasets, as well as data collection documents and readme documents

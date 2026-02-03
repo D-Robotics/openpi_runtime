@@ -1,37 +1,58 @@
-# 数据集采集
+# Dataset Collection
 
-## 数采硬件
-两个相机、一个piper、一个alicia-D
+## Hardware Configuration
 
-## 运行相关节点
+- 2x D457 RGB cameras (head camera + left wrist camera)
+- 1x Piper robotic arm (execution arm)
+- 1x Alicia-D teleoperation arm (input device)
 
-### 相机
+## Running Required Nodes
+
+### Camera Nodes
+
+**Head Camera**
+
 ```bash
 source /opt/ros/jazzy/setup.bash
 export ROS_DOMAIN_ID=40
-ros2 launch realsense2_camera rs_launch.py serial_no:='_234322302783' camera_namespace:=camera camera_name:=camera rgb_camera.color_profile:=640x480x50
+ros2 launch realsense2_camera rs_launch.py \
+  serial_no:='_234322302783' \
+  camera_namespace:=camera \
+  camera_name:=camera \
+  rgb_camera.color_profile:=640x480x50
 ```
+
+**Left Wrist Camera**
 
 ```bash
 source /opt/ros/jazzy/setup.bash
 export ROS_DOMAIN_ID=40
-ros2 launch realsense2_camera rs_launch.py serial_no:='_234322306420' camera_namespace:=camera_left camera_name:=camera_left rgb_camera.color_profile:=640x480x50
+ros2 launch realsense2_camera rs_launch.py \
+  serial_no:='_234322306420' \
+  camera_namespace:=camera_left \
+  camera_name:=camera_left \
+  rgb_camera.color_profile:=640x480x50
 ```
 
+### Virtual Camera Node
 
-### fake_cameta
+This node publishes dummy images when real cameras are not available (for testing purposes):
+
 ```bash
 export COLCON_CURRENT_PREFIX=./install
 source /opt/ros/jazzy/setup.bash
 source ./install/setup.bash
 export ROS_DOMAIN_ID=40
-python3 install/lib/openpi_runtime/camera_fake_node --width 640 --height 480 --publish_rate 50
+python3 install/lib/openpi_runtime/camera_fake_node \
+  --width 640 \
+  --height 480 \
+  --publish_rate 50
 ```
 
+### Piper Node
 
+Controls the execution robotic arm. The node subscribes to action commands from the inference node and publishes joint states:
 
-
-### piper
 ```bash
 export COLCON_CURRENT_PREFIX=./install
 source /opt/ros/jazzy/setup.bash
@@ -48,13 +69,12 @@ python3 install/lib/openpi_runtime/piper_node \
   --gripper_state_threshold 64000 \
   --gripper_torque 3500 \
   --can_name can0
-
 ```
 
+### Alicia-D Node
 
+The teleoperation input device node. It reads joint positions from the Alicia-D arm and publishes them as action commands:
 
-
-### alicia-D
 ```bash
 export COLCON_CURRENT_PREFIX=./install
 source /opt/ros/jazzy/setup.bash
@@ -70,21 +90,24 @@ python3 install/lib/openpi_runtime/aliciaD_node \
   -p gripper_threshold:=70 \
   -p use_filter:=True \
   -p filter_alpha:=0.1
-
 ```
 
-## 录制数据集
-录制以下话题：
+## Recording Dataset
+
+### Topics to Record
+
 ```
 "/aliciaD/action"
-"/piper/qpos" 
+"/piper/qpos"
 "/camera/camera/color/image_raw"
 "/camera_left/camera_left/color/image_raw"
 ```
 
+### Important Notes
 
-在 record_task.sh 里修改保存的路径，不要保存到网络挂载的文件夹，磁盘读写速度跟不上保存速度，会有严重的丢包.
+Modify the save path in `record_task.sh` before starting the recording. **Do not** save to network-mounted directories. Network disk I/O speed cannot keep up with the real-time recording requirements, which will cause severe data loss.
 
+### Start Recording
 
 ```bash
 source /opt/ros/jazzy/setup.bash
@@ -92,23 +115,28 @@ export ROS_DOMAIN_ID=40
 ./record_task.sh
 ```
 
+## Dataset Validation
 
-## 检查数据集
-关闭 alicia-D 节点，然后使用 ros2 bag play 回放录制好的数据集
+After stopping the Alicia-D node, use `ros2 bag play` to replay and validate the recorded dataset:
+
 ```bash
 ros2 bag play rosbag2_20260101_154003/ --topics /aliciaD/action
 ```
 
-## 整理数据集
+## Dataset Post-processing
 
-### 转换数据集
+### Format Conversion
+
+Convert ROS bag format to HDF5 for training:
+
 ```bash
 python bag_2_hdf5.py -i /path/to/input -o /path/to/output
 ```
 
+### File Renaming
 
-### 重命名数据集
+Rename the converted HDF5 files with sequential indices:
+
 ```bash
 python rename_hdf5.py /path/to/output --start 0
 ```
-
