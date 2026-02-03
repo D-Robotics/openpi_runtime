@@ -290,16 +290,13 @@ python3 install/lib/openpi_runtime/s600_inference_node \
 
 ## 运行结果
 
-以下是 S600 机械臂执行 Pi0 模型的演示视频：
+以下视频演示了 S600 机械臂执行 Pi0 模型的过程：
 
-<div align="center">
-  <video width="640" height="360" controls>
-    <source src="./resource/s600_pi0.mp4" type="video/mp4">
-    您的浏览器不支持视频播放。
-  </video>
-</div>
+[![S600 Pi0 Demo](./resource/s600_pi0_cover.jpg)](./resource/s600_pi0.mp4)
 
 **视频说明**：演示了 S600 机械臂接收用户指令 "put the yellow mango on the blue plate" 后，通过 Pi0 模型推理生成动作序列，并平滑执行的全过程。可以看到机械臂从初始位置平稳抓取黄色芒果并放置到蓝色餐盘上。
+
+**查看视频**：点击上方图片或 [下载视频](./resource/s600_pi0.mp4) 查看完整演示。
 
 ## 文件结构
 

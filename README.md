@@ -291,16 +291,13 @@ Current State ──→ 10 Interpolations ──→ action[0] ──→ First-or
 
 ## Results
 
-The following is a demonstration video of the S600 robotic arm executing the Pi0 model:
+The following video demonstrates the S600 robotic arm executing the Pi0 model:
 
-<div align="center">
-  <video width="640" height="360" controls>
-    <source src="./resource/s600_pi0.mp4" type="video/mp4">
-    Your browser does not support video playback.
-  </video>
-</div>
+[![S600 Pi0 Demo](./resource/s600_pi0_cover.jpg)](./resource/s600_pi0.mp4)
 
 **Video Description**: This demo shows the S600 robotic arm receiving the user instruction "put the yellow mango on the blue plate", generating action sequences through Pi0 model inference, and smoothly executing the actions. You can see the robotic arm smoothly picking up the yellow mango from its initial position and placing it on the blue plate.
+
+**Watch Video**: Click the image above or [download the video](./resource/s600_pi0.mp4) to view the complete demonstration.
 
 ## File Structure
 
