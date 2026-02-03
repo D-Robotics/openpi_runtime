@@ -639,7 +639,7 @@ def _get_piper_observation(ros_node: PiperROSNode) -> dict:
     return {
         "state": full_state.astype(np.float32),  # 转换为float32
         "images": images,  # 4个摄像头的图像数据
-        "prompt": "put the box",  # TODO: 支持动态指令输入
+        "prompt": "put the yellow mango on the blue plate",  # TODO: 支持动态指令输入
     }
 
 def main(args: Args) -> None:
@@ -734,7 +734,7 @@ def main(args: Args) -> None:
                 
                 # 确保获取最新的数据
                 data_collection_start = time.time()
-                for _ in range(50):
+                for _ in range(20):
                     ros_node.spin_once()
                     time.sleep(0.01)
                 
@@ -925,7 +925,7 @@ def main(args: Args) -> None:
                         logger.error(f"发布动作失败: {e}")
                     
                     # 小延时，确保动作按顺序执行
-                    time.sleep(0.01)
+                    time.sleep(0.02)
                 
                 execution_time = time.time() - execution_start
                 logger.info(f"✓ 动作序列执行完成，共 {len(processed_actions)} 步，耗时: {execution_time*1000:.1f}ms")

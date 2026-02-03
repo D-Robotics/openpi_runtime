@@ -1,0 +1,35 @@
+syntax = "proto3";
+
+message Time {
+  int64 sec = 1; 
+  int32 nsec = 2; 
+}
+
+message Header {
+  uint32 seq = 1;        // 消息序列号（自增计数）
+  Time stamp = 2;        // 时间戳（数据采集时刻）
+  string frame_id = 3;   // 坐标系 ID（空间参考系）
+  uint32 type = 4;        // 图像类型（RGB,BGR）
+  bool reset = 5;        // 重置推演
+}
+
+message Tensor {
+  enum DataType {
+    FLOAT64 = 0;
+    UINT8 = 1;
+    STRING = 2;
+    FLOAT32 = 3;
+    INT32 = 4;
+    FP16 = 5;
+  }
+  DataType dtype = 1;
+  repeated int32 shape = 2;  // 固定为int32（4字节），跨架构兼容
+  bytes data = 3;            // 二进制数据
+}
+
+message MultiModalInput {
+  Header header = 1;
+  repeated Tensor images = 2;   // 图像张量
+  repeated Tensor languages = 3; // 语言张量
+  repeated Tensor states = 4; // 状态张量
+}

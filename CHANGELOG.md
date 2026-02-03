@@ -27,3 +27,9 @@ tros_0.1.4 (2026-1-5)
 tros_0.2.0 (2026-1-29)
 ------------------
 1. Add .hbm model infer server
+
+
+tros_0.2.1 (2026-2-2)
+------------------
+1. Organized the script files under the openpi_runtime/scripts directory
+2. Add the retrieval path for the model file under the openpi_runtime/resource directory
