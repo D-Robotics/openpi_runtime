@@ -229,6 +229,12 @@ python3 install/lib/openpi_runtime/piper_node \
 
 **Command Line**
 
+Ensure `norm_stats_path` matches your model file. Download norm_stats.json from:
+- put_the_yellow_mango_on_the_blue_plate
+https://huggingface.co/D-Robotics/openpi/tree/main/pi0_put_the_yellow_mango_on_the_blue_plate/torch/assets/trossen
+- put_the_box
+https://huggingface.co/D-Robotics/openpi/tree/main/put_the_box/torch/assets/trossen
+
 ```bash
 export COLCON_CURRENT_PREFIX=./install
 source /opt/ros/jazzy/setup.bash
@@ -237,7 +243,7 @@ export ROS_DOMAIN_ID=40
 
 python3 install/lib/openpi_runtime/s600_inference_node \
   --ros-args \
-  -p norm_stats_path:=/mnt/wang.liu/mount/tros_ws/src/openpi_runtime/openpi_runtime/norm_stats.json \
+  -p norm_stats_path:=norm_stats.json \
   -p action_topic:=/aliciaD/action \
   -p qpos_topic:=/piper/qpos \
   -p num_steps:=1250

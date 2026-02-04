@@ -228,6 +228,11 @@ python3 install/lib/openpi_runtime/piper_node \
 
 **命令行启动**
 norm_stats_path要与你的模型文件匹配，注意修改路径。
+norm_stats.json的下载路径：
+- put_the_yellow_mango_on_the_blue_plate
+https://huggingface.co/D-Robotics/openpi/tree/main/pi0_put_the_yellow_mango_on_the_blue_plate/torch/assets/trossen
+- put_the_box
+https://huggingface.co/D-Robotics/openpi/tree/main/put_the_box/torch/assets/trossen
 ```bash
 export COLCON_CURRENT_PREFIX=./install
 source /opt/ros/jazzy/setup.bash
