@@ -70,7 +70,7 @@ OpenPI Runtime 是基于 [Pi0](https://github.com/Physical-Intelligence/openpi) 
 | 数据类型 | 形状 | 数据类型 | 说明 |
 |---------|------|---------|------|
 | 图像数据 (3路) | [3, 224, 224] | uint8 | 头部相机、左腕相机、右腕相机（黑图） |
-| 状态数据 | [14] | float32 | 7个关节位置 + 7个目标关节位置 |
+| 状态数据 | [14] | float32 | 左臂和右臂的关节和夹爪状态 |
 | 提示词 | - | string | 用户指令，如 "put the yellow mango on the blue plate" |
 
 ### 输出动作格式

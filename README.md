@@ -1,4 +1,4 @@
-[English](./README.md) | 简体中文
+English | [简体中文](./README_cn.md)
 
 # OpenPI Runtime S600 Inference Node
 
@@ -71,7 +71,7 @@ This system adopts a client-server architecture: the S600 inference node acts as
 | Data Type | Shape | Data Type | Description |
 |-----------|-------|-----------|-------------|
 | Image Data (3 channels) | [3, 224, 224] | uint8 | Head camera, left wrist camera, right wrist camera (black) |
-| State Data | [14] | float32 | 7 joint positions + 7 target joint positions |
+| State Data | [14] | float32 | Left arm and right arm joint and gripper states |
 | Prompt | - | string | User instruction, e.g., "put the yellow mango on the blue plate" |
 
 ### Output Action Format
