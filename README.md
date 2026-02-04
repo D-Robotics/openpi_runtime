@@ -103,13 +103,13 @@ This system adopts a client-server architecture: the S600 inference node acts as
 
 ## Dependencies
 
-### Python Dependencies
+### Python Dependencies (RDKs600)
 
-```
-numpy>=1.24.0
-opencv-python>=4.8.0
-tyro>=0.7.0
-cv-bridge
+```bash
+conda create -n s600_pi0 python=3.12
+conda activate s600_pi0
+
+pip install -r resource/requirements.txt
 ```
 
 ### ROS2 Package Dependencies

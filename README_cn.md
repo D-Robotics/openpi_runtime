@@ -102,13 +102,12 @@ OpenPI Runtime 是基于 [Pi0](https://github.com/Physical-Intelligence/openpi) 
 
 ## 依赖项
 
-### Python 依赖
+### RDKs600端的 Python 依赖
+```bash
+conda create -n s600_pi0 python=312
+conda activate s600_pi0
 
-```
-numpy>=1.24.0
-opencv-python>=4.8.0
-tyro>=0.7.0
-cv-bridge
+pip install -r resource/requirements.txt
 ```
 
 ### ROS2 包依赖
@@ -222,6 +221,9 @@ python3 install/lib/openpi_runtime/piper_node \
   --gripper_torque 3500 \
   --can_name can0
 ```
+
+
+
 
 ### 3. 启动 S600 推理节点
 
