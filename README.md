@@ -1,242 +1,360 @@
+English | [简体中文](./README_cn.md)
 
-English| [简体中文](./README_cn.md)
+# OpenPI Runtime S600 Inference Node
 
-Getting Started with Openpi Runtime Package
-=======
+## Overview
 
+OpenPI Runtime is a Vision-Language-Action (VLA) model inference runtime based on the quantized deployment of [Pi0](https://github.com/Physical-Intelligence/openpi). This project implements an end-to-end control flow for the S600 robotic arm, generating action sequences and controlling the robotic arm execution based on camera images and arm state combined with user instructions.
 
-# Feature Introduction
+This system adopts a client-server architecture: the S600 inference node acts as the client responsible for data collection, preprocessing, and action execution; the Pi0 inference model serves as the server responsible for action prediction.
 
-The Openpi Runtime package is an VLA (Vision Language Action Model) example of quantized deployment based on [Pi0](https://github.com/Physical-Intelligence/openpi), which is the basic model in openpi. The input datas consist of three parts:
+## System Architecture
 
-- "images"：{
-    "0": [1, 3, 224, 224], dtype=uint8,
-    "1": [1, 3, 224, 224], dtype=uint8,
-    "2": [1, 3, 224, 224], dtype=uint8
-}
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    S600 Inference Node System Architecture       │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  ┌──────────────┐    ┌──────────────┐    ┌──────────────┐      │
+│  │  Head Camera │    │ Left Wrist   │    │ Right Wrist  │      │
+│  │  /camera/    │    │ /camera_left/│    │  (Black)     │      │
+│  │  camera/     │    │ camera_left/ │    │              │      │
+│  │  color/      │    │ color/       │    │              │      │
+│  │  image_raw   │    │ image_raw    │    │              │      │
+│  └──────┬───────┘    └──────┬───────┘    └──────┬───────┘      │
+│         │                   │                   │               │
+│         └───────────────────┼───────────────────┘               │
+│                             ▼                                   │
+│              ┌──────────────────────────────┐                  │
+│              │     Topic Synchronizer       │                  │
+│              │  TopicTimeSynchronizer       │                  │
+│              │   Time Window: 100ms         │                  │
+│              └──────────────┬───────────────┘                  │
+│                             ▼                                   │
+│         ┌───────────────────────────────┐                       │
+│         │        S600 Inference Node    │                       │
+│         │   s600_inference_node.py      │                       │
+│         ├───────────────────────────────┤                       │
+│         │  1. Data Collection (0.1ms)   │                       │
+│         │  2. Preprocessing (3.2ms)    │                       │
+│         │  3. Inference (192.5ms)      │                       │
+│         │  4. Postprocessing (0.1ms)   │                       │
+│         │  5. Action Interpolation      │                       │
+│         │     and Filtering             │                       │
+│         └───────────────┬───────────────┘                       │
+│                         ▼                                       │
+│              ┌─────────────────────┐                            │
+│              │   Pi0 Inference      │                            │
+│              │   Server (OE-LLM)    │                            │
+│              └──────────┬──────────┘                            │
+│                         ▼                                       │
+│              ┌─────────────────────┐                            │
+│              │    piper_node        │                            │
+│              │  Robotic Arm Control │                            │
+│              └─────────────────────┘                            │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
 
-- "prompt": dtype=string, for example "catch the bottle."
+## Key Features
 
-- "state": [1, 14], dtype=float64, the stare of the two robotics arms.
+- **Multi-camera Synchronized Acquisition**: Supports synchronized image acquisition from head and left wrist cameras, right wrist uses black image placeholder
+- **Topic Time Synchronization**: Based on ROS2 topic timestamp synchronization to ensure data consistency
+- **End-to-end Low Latency**: Data collection → Preprocessing → Inference → Postprocessing → Execution, full pipeline latency monitoring
+- **Action Smoothing**: First action interpolates from current state, last action converges smoothly, intermediate actions use first-order low-pass filtering
+- **Joint and Gripper Separate Control**: 6 joints use filtering and interpolation, gripper state published directly
 
-The image data comes from at least three subscribed image messages. Additionally, we provide the pi0 runtime server on D-robotics OE-LLM. By the infer of pi0 server, we can get the actions to control the robotics arms directly again and again util we finilly finish the task.
+## Technical Specifications
 
-# Development Environment
+### Input Data Format
 
-- Programming Language: Python3
-- Development Platform: RDK S600
-- System Version: Ubuntu 24.04
-- Compilation Toolchain: Linaro GCC 13.3.0
+| Data Type | Shape | Data Type | Description |
+|-----------|-------|-----------|-------------|
+| Image Data (3 channels) | [3, 224, 224] | uint8 | Head camera, left wrist camera, right wrist camera (black) |
+| State Data | [14] | float32 | Left arm and right arm joint and gripper states |
+| Prompt | - | string | User instruction, e.g., "put the yellow mango on the blue plate" |
 
-# Compilation
+### Output Action Format
 
-- S600 Version: Supports compilation on the S600 Ubuntu system and cross-compilation using Docker on a PC.
+| Data Type | Shape | Data Type | Description |
+|-----------|-------|-----------|-------------|
+| Action Sequence | [50, 14] | float32 | 50 timesteps, each containing 6 joints + gripper for left arm, and 6 joints + gripper for right arm |
 
-It also supports controlling the dependencies and functionality of the compiled pkg through compilation options.
+### Performance Metrics
 
-## Dependency Libraries
+| Stage | Average Latency | Description |
+|-------|-----------------|-------------|
+| Data Collection | 0.1ms | ROS2 topic synchronization and data acquisition |
+| Preprocessing | 3.2ms | Image format conversion, normalization, tokenization |
+| Inference | 192.5ms | Pi0 model inference (server-side) |
+| Postprocessing | 0.1ms | Action decoding, Delta restoration |
+| Action Execution | 700.5ms | 50 actions + interpolation, approximately 70 timesteps |
+| Single Loop | 896.4ms | Complete pipeline including all stages |
 
-- OpenCV: 3.4.5
+## Development Environment
 
-ROS Packages:
-
-- cv_bridge
-- sensor_msgs
-
-## Compilation Options
-
-1. Compilation Environment Verification
-
-- The S600 Ubuntu system is installed on the board.
-- The current compilation terminal has set up the TogetherROS environment variable: `source PATH/setup.bash`. Where PATH is the installation path of TogetherROS.
-- The ROS2 compilation tool colcon is installed. If the installed ROS does not include the compilation tool colcon, it needs to be installed manually. Installation command for colcon: `pip install -U colcon-common-extensions`.
-
-2. Compilation
-
-- Compilation command: `colcon build --packages-select openpi_runtime`
-
-## Docker Cross-Compilation for S600 Version
-
-1. Compilation Environment Verification
-
-- Compilation within docker, and TogetherROS has been installed in the docker environment. For instructions on docker installation, cross-compilation, TogetherROS compilation, and deployment, please refer to the README.md in the robot development platform's robot_dev_config repo.
-- The dnn node package has been compiled.
-- The hbm_img_msgs package has been compiled (see Dependency section for compilation methods).
-
-2. Compilation
-
-- Compilation command:
-
-  ```shell
-  # RDK S600
-  bash robot_dev_config/build.sh -p S600 -s openpi_runtime
-  ```
-
-## Notes
-
-
-# Instructions
+| Item | Version/Specification |
+|------|----------------------|
+| Programming Language | Python 3.12 |
+| Operating System | Ubuntu 24.04 |
+| ROS2 Version | Jazzy |
+| Robotic Arm Platform | S600 |
+| Build Tool | colcon |
+| Inference Framework | Pi0 (OE-LLM) |
 
 ## Dependencies
+
+### Python Dependencies
+
+```
+numpy>=1.24.0
+opencv-python>=4.8.0
+tyro>=0.7.0
+cv-bridge
+```
+
+### ROS2 Package Dependencies
 
 - realsense2_camera package: Publishes image messages in realsense for the example D457.
 - websocket package: Renders image messages.
 
-## Parameters
+## Model Download
 
-| Parameter Name      | Explanation                            | Mandatory            | Default Value       | Remarks                                                                 |
-| ------------------- | -------------------------------------- | -------------------- | ------------------- | ----------------------------------------------------------------------- |
-| user_prompt           | Task name   | No                   | beat block hammer                   |                                                                         |
-| max_limit_num               | the max time the robot can try                       | No                   | 50     |                                                                         |
-| state_sub_topic_name   | Subscribe to robotic arm state | No  | /joint_states                   |                                                                         |
-| camera_topic_name | Brain side camera topic name for subscribing image msg | No                   | /camera/camera/color/image_raw | |
-| camera_left_topic_name | Left-arm Camera on topic name for subscribing image msg| No                   | /camera_left/camera_left/color/image_raw | |
+HBM quantized models are available on Hugging Face: https://huggingface.co/D-Robotics/openpi
 
-## Running
+| Version | Folder | Model | Prompt |
+|---------|--------|-------|--------|
+| v0.1.0 | put_the_box | pi0_base, HBM | put the box |
+| v0.2.0 | pi0_put_the_yellow_mango_on_the_blue_plate | pi0_base, HBM | put the yellow mango on the blue plate |
 
-## Running Pi0 on RDK S600 Ubuntu System
+## Parameter Description
 
-Running method 1, use the executable file to start:
+| Parameter Name | Type | Default Value | Description |
+|----------------|------|---------------|-------------|
+| `num_steps` | int | 1250 | Maximum control steps |
+| `norm_stats_path` | string | "" | Normalization statistics file path |
+| `action_topic` | string | "/aliciaD/action" | Action publishing topic |
+| `qpos_topic` | string | "/piper/qpos" | State subscription topic |
+| `wait_timeout` | float | 10.0 | Data waiting timeout (seconds) |
+| `sync_time_window` | float | 0.1 | Topic synchronization time window (seconds) |
 
-```shell
-export COLCON_CURRENT_PREFIX=./install
-source /opt/ros/jazzy/setup.bash
-source ./install/setup.bash
+| Parameter Name | Explanation | Mandatory | Default Value | Remarks |
+|---------------|-------------|-----------|---------------|---------|
+| user_prompt | Task name | No | beat block hammer | |
+| max_limit_num | the max time the robot can try | No | 50 | |
+| state_sub_topic_name | Subscribe to robotic arm state | No | /joint_states | |
+| camera_topic_name | Brain side camera topic name for subscribing image msg | No | /camera/camera/color/image_raw | |
+| camera_left_topic_name | Left-arm Camera on topic name for subscribing image msg | No | /camera_left/camera_left/color/image_raw | |
 
-ros2 run openpi_runtime openpi_runtime_node --ros-args -p max_limit_num:=50 --log-level warn
-```
+## Build
 
-Running method 2, use the python file to start:
+### Build on S600 Ubuntu System
 
-```shell
-export COLCON_CURRENT_PREFIX=./install
-source /opt/ros/jazzy/setup.bash
-source ./install/setup.bash
+1. Build Environment Confirmation
 
-python3 install/lib/openpi_runtime/openpi_runtime_node
-```
+   - S600 Ubuntu system is installed on the target board
+   - Current build terminal has TogetherROS environment variable set: `source PATH/setup.bash` (PATH is the TogetherROS installation path)
+   - ROS2 build tool colcon is installed (if not, run `pip install -U colcon-common-extensions`)
+   - dnn node package is built
 
-Running method 3, using a launch file:
-
-```shell
-export COLCON_CURRENT_PREFIX=./install
-source /opt/ros/jazzy/setup.bash
-source ./install/setup.bash
-
-# Start the launch file, publish rgb8 images from D457.
-ros2 launch openpi_runtime runtime.launch.py
-```
-
-## Running Others on RDK S600 Ubuntu System
-
-- Start the pi0 server in oe_llm(comming soon).
-
-```shell
-bash run_pi0.sh
-```
-
-- Publish the robotic arm state in empty data.
-
-```shell
-ros2 topic pub /joint_states sensor_msgs/msg/JointState "{name: [], position: [-0.1300568,0.50693603,0.54202605,-0.2851898,-0.03326998,-0.12191405,0.56831681,-0.0183007,-0.04226554,-0.02073833,0.03956214,-0.00720679,-0.02525674,0.46239254], velocity: [], effort: []}" -r 1
-```
-
-- Pulish the D457 sensor using 'GMSL' mode.
-
-```shell
-source /opt/tros/jazzy/setup.bash
-ros2 launch realsense2_camera rs_launch.py serial_no:='_234322306420' camera_namespace:=camera camera_name:=camera rgb_camera.color_profile:=1280x720x30
-```
-
-```shell
-source /opt/tros/jazzy/setup.bash
-ros2 launch realsense2_camera rs_launch.py serial_no:='_241122306184' camera_namespace:=camera_left camera_name:=camera_left rgb_camera.color_profile:=1280x720x30
-```
-
-# Results Analysis
-
-## RDK S600 Pi0 Server Result
-
-Command executed: `bash run_pi0.sh"`
-
-```shell
-[UCP]: log level = 3
-[UCP]: UCP version = 3.12.3
-[VP]: log level = 3
-[DNN]: log level = 3
-[HPL]: log level = 3
-[UCPT]: log level = 6
-Stage: 6
-config_path: pi0_config.json
-siglip_hbm_path: /root/zixi01.chen/pi0_hbm_1204/pi0_siglip_ptq.hbm
-paligemma_hbm_path: /root/zixi01.chen/pi0_hbm_1204/pi0_gemma_llm_ptq.hbm
-action_hbm_path: /root/zixi01.chen/pi0_hbm_1204/pi0_gemma_expert_ptq.hbm
-token_config_path: ../../configs/Pi0_config/
-norm_stats_path: ../../configs/Pi0_config/norm_stats.json
-server_socket: 127.0.0.1:8888
-[I][968167][12-13][20:58:15:690][xlm_impl.cc:39][pi0][XlmImpl] max_batch_num is: 1
-siglip_backends: [2 3 4]
-paligemma_backends: [2 3 4 5]
-action_backends: [2 3 4 5]
-Stage: 6
-[BPU][[BPU_MONITOR]][281467506159296][INFO]BPULib verison(2, 2, 15)[f21ee84]!
-[DNN]: 3.12.3_(4.5.4 HBRT)
-[I][968167][12-13][20:58:21:345][model_manager.cc:213][pi0][mod_mgr] Load hbm file '/root/zixi01.chen/pi0_hbm_1204/pi0_siglip_ptq.hbm' success.
-[I][968167][12-13][20:58:21:345][model_manager.cc:235][pi0][mod_mgr] model_count_ is: 1
-[I][968167][12-13][20:58:21:345][model_manager.cc:258][pi0][mod_mgr] Load dnn model success. hbm_name is: pi0_siglip, model_name is: siglip
-[I][968167][12-13][20:58:21:345][model_manager.cc:235][pi0][mod_mgr] model_count_ is: 1
-[I][968167][12-13][20:58:21:345][model_manager.cc:235][pi0][mod_mgr] model_count_ is: 1
-[I][968167][12-13][20:58:23:060][model_manager.cc:213][pi0][mod_mgr] Load hbm file '/root/zixi01.chen/pi0_hbm_1204/pi0_gemma_llm_ptq.hbm' success.
-[I][968167][12-13][20:58:23:060][model_manager.cc:235][pi0][mod_mgr] model_count_ is: 1
-[I][968167][12-13][20:58:23:060][model_manager.cc:258][pi0][mod_mgr] Load dnn model success. hbm_name is: pi0_paligemma, model_name is: gemma
-[I][968167][12-13][20:58:23:279][model_manager.cc:213][pi0][mod_mgr] Load hbm file '/root/zixi01.chen/pi0_hbm_1204/pi0_gemma_expert_ptq.hbm' success.
-[I][968167][12-13][20:58:23:279][model_manager.cc:235][pi0][mod_mgr] model_count_ is: 1
-[I][968167][12-13][20:58:23:279][model_manager.cc:258][pi0][mod_mgr] Load dnn model success. hbm_name is: pi0_action, model_name is: gemma_expert
-xlm init success
-开始连接：127.0.0.1:8888
-正在努力连接中，已请求 13 秒...连接成功：127.0.0.1:8888
-接收成功，长度：451847字节
-===== 解析 Header 信息 =====
-序列号: 0
-时间戳: 1765630719.155770063
-重置仿真：0
-===== 解析 Body 信息 =====
-接收到 3 个图像张量：
-类型=1，维度=1 3 224 224
-类型=1，维度=1 3 224 224
-类型=1，维度=1 3 224 224
-接收到 1 个语言张量：
-类型=2，维度=
-接收到 1 个状态张量：
-类型=0，维度=1 14
-===== 开启 Pi0 推理 =====
-Preprocess time: 1.447ms.
-Siglip infer time: 21.463ms.
-Paligemma infer time: 53.858ms.
-Action infer time: 69.756ms.
-Postprocess time: 0.083ms.
-Pi0 Total time: 146.964ms.
-===========================
-发送成功，长度：5651字节
-```
-
-## RDK S600 Runtime(Client) Result:
-
-Command executed: `ros2 run openpi_runtime openpi_runtime_node --ros-args -p max_limit_num:=50 --log-level warn"`
+2. Build
 
 ```bash
-[WARN] [1765633774.309818394] [openpi_runtime_node]: Openpi Runtime Node has been started.
-[WARN] [1765633774.311431634] [openpi_runtime_node]:
-================ Node Parameters ================
-user_prompt             : beat block hammer
-max_limit_num           : 10
-state_sub_topic_name    : /joint_states
-camera_topic_name       : /camera/camera/color/image_raw
-camera_left_topic_name  : /camera_left/camera_left/color/image_raw
-camera_right_topic_name : /camera_right/camera_right/color/image_raw
-================================================
+colcon build --packages-select openpi_runtime
+```
 
-服务器启动成功，等待客户端连接...（端口：8888）
-客户端已连接：IP=127.0.0.1, 端口=50938
+### Docker Cross-compilation for S600
+
+1. Build Environment Confirmation
+
+   Build in docker with TogetherROS already installed in docker. For docker installation, cross-compilation instructions, and TogetherROS build/deployment details, refer to the README.md in the robot_dev_config repository.
+
+2. Build
+
+   Shared mem communication is enabled by default.
+
+```bash
+bash robot_dev_config/build.sh -p S600 -s openpi_runtime
+```
+
+## Usage
+
+### 1. Start Camera Nodes
+
+**Head Camera (D457)**
+
+```bash
+source /opt/ros/jazzy/setup.bash
+export ROS_DOMAIN_ID=40
+ros2 launch realsense2_camera rs_launch.py \
+  serial_no:='_234322302783' \
+  camera_namespace:=camera \
+  camera_name:=camera \
+  rgb_camera.color_profile:=640x480x50
+```
+
+**Left Wrist Camera (D457)**
+
+```bash
+source /opt/ros/jazzy/setup.bash
+export ROS_DOMAIN_ID=40
+ros2 launch realsense2_camera rs_launch.py \
+  serial_no:='_234322306420' \
+  camera_namespace:=camera_left \
+  camera_name:=camera_left \
+  rgb_camera.color_profile:=640x480x50
+```
+
+### 2. Start piper Node
+
+```bash
+export COLCON_CURRENT_PREFIX=./install
+source /opt/ros/jazzy/setup.bash
+source ./install/setup.bash
+export ROS_DOMAIN_ID=40
+
+python3 install/lib/openpi_runtime/piper_node \
+  --subscribe_topic /aliciaD/action \
+  --publish_topic /piper/qpos \
+  --publish_rate 50.0 \
+  --gripper_open_value 74000 \
+  --gripper_close_value 50 \
+  --gripper_threshold 0.5 \
+  --gripper_state_threshold 64000 \
+  --gripper_torque 3500 \
+  --can_name can0
+```
+
+### 3. Start S600 Inference Node
+
+**Command Line**
+
+```bash
+export COLCON_CURRENT_PREFIX=./install
+source /opt/ros/jazzy/setup.bash
+source ./install/setup.bash
+export ROS_DOMAIN_ID=40
+
+python3 install/lib/openpi_runtime/s600_inference_node \
+  --ros-args \
+  -p norm_stats_path:=/mnt/wang.liu/mount/tros_ws/src/openpi_runtime/openpi_runtime/norm_stats.json \
+  -p action_topic:=/aliciaD/action \
+  -p qpos_topic:=/piper/qpos \
+  -p num_steps:=1250
+```
+
+## Action Execution Algorithm
+
+### Action Smoothing Strategy
+
+This node adopts a three-stage action smoothing strategy to ensure the action sequence is both smooth and accurately reaches the target state:
 
 ```
+Current State ──→ 10 Interpolations ──→ action[0] ──→ First-order Filter ──→ action[1] ──→ ... ──→ action[48] ──→ 10 Interpolations ──→ action[49]
+     │                            │              │                                      │
+     ▼                            ▼              ▼                                      ▼
+  Initial Position          First Action    Middle 48 Actions                      Last Action
+                           (Smooth Start)    (alpha=0.15)                        (Smooth Convergence)
+```
+
+### Algorithm Details
+
+1. **First Stage Interpolation** (First Action)
+
+   Linear interpolation from current state to action[0] in 10 steps to avoid sudden jumps from static state to target action.
+
+2. **Middle Stage Filtering** (action[1] to action[48])
+
+   First-order low-pass filter with coefficient: alpha = 0.15
+
+   ```
+   filtered = alpha × action + (1 - alpha) × previous_filtered
+   ```
+
+3. **Second Stage Interpolation** (Last Action)
+
+   Linear interpolation from action[48] to action[49] in 10 steps to ensure smooth convergence to the final target.
+
+4. **Gripper Handling**
+
+   - Dimension 7 (gripper) does not participate in filtering or interpolation
+   - Directly uses the gripper state from inference output (0 or 1)
+
+### Execution Flow
+
+| Stage | Action Count | Description |
+|-------|--------------|-------------|
+| First Stage Interpolation | 10 | Current state → action[0] |
+| Middle Stage Filtering | 48 | action[1] → action[48] |
+| Second Stage Interpolation | 10 | action[48] → action[49] |
+| **Total** | **68** | ~1.36 seconds (20ms per step) |
+
+## Results
+
+The following video demonstrates the S600 robotic arm executing the Pi0 model:
+
+[![S600 Pi0 Demo](./resource/s600_pi0_cover.jpg)](./resource/s600_pi0.mp4)
+
+**Video Description**: This demo shows the S600 robotic arm receiving the user instruction "put the yellow mango on the blue plate", generating action sequences through Pi0 model inference, and smoothly executing the actions. You can see the robotic arm smoothly picking up the yellow mango from its initial position and placing it on the blue plate.
+
+**Watch Video**: Click the image above or [download the video](./resource/s600_pi0.mp4) to view the complete demonstration.
+
+## File Structure
+
+```
+openpi_runtime/
+├── inference/
+│   └── s600_inference_node.py    # S600 Inference Main Node
+├── robot/
+│   └── piper_node.py              # Piper Robotic Arm Control Node
+├── common/
+│   ├── utils/
+│   │   ├── ros_data_collector.py
+│   │   └── topic_time_synchronizer.py
+│   ├── pi0_process/
+│   │   ├── preprocess.py          # Inference Preprocessing
+│   │   └── postprocess.py         # Inference Postprocessing
+│   ├── ServerUtils/
+│   │   └── server.py              # TCP Communication Server
+│   └── msg/
+│       └── msg.proto              # Message Protocol Definition
+├── launch/
+│   ├── run_pi0_s600.launch        # Launch File
+│   └── readme.md                  # Startup Instructions
+├── resource/
+│   └── s600_pi0.mp4               # Demo Video
+├── scripts/
+│   └── data_collector/            # Data collection tools and documentation
+└── README_cn.md                   # Chinese Documentation
+```
+> **Dataset Collection**: For training data collection, please refer to the [Data Collection Guide](./scripts/data_collector/README.md).
+
+## Troubleshooting
+
+### Common Issues
+
+**1. Unable to Acquire Observation Data**
+
+- Check if camera nodes are running normally
+- Confirm ROS_DOMAIN_ID settings are consistent
+- Verify topic names are correct
+
+**2. Inference Connection Failed**
+
+- Confirm Pi0 inference service is started
+- Check if port 8888 is occupied
+- Verify norm_stats.json file path is correct
+
+**3. Action Execution Not Continuous**
+
+- Check network latency
+- Confirm CAN communication is normal
+- Adjust `sync_time_window` parameter
+
+## References
+
+- [openpi](https://github.com/Physical-Intelligence/openpi)
+- [ROS2 Official Documentation](https://docs.ros.org/)
+- [Realsense SDK](https://github.com/IntelRealSense/realsense-ros)
+- [aliciaD](https://docs.sparklingrobo.com/docs/alicia-d-series/leader/doc_00_intro)
+- [piper](https://github.com/agilexrobotics/piper_sdk)
