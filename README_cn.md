@@ -35,10 +35,10 @@ OpenPI Runtime 是基于 [Pi0](https://github.com/Physical-Intelligence/openpi) 
 │         │        S600 推理节点            │                       │
 │         │   s600_inference_node.py      │                       │
 │         ├───────────────────────────────┤                       │
-│         │  1. 数据采集 (5.2ms)           │                       │
-│         │  2. 前处理 (128.3ms)           │                       │
-│         │  3. 推理 (245.1ms)             │                       │
-│         │  4. 后处理 (15.7ms)            │                       │
+│         │  1. 数据采集 (0.1ms)           │                       │
+│         │  2. 前处理 (3.2ms)            │                       │
+│         │  3. 推理 (192.5ms)            │                       │
+│         │  4. 后处理 (0.1ms)            │                       │
 │         │  5. 动作插值与滤波执行           │                       │
 │         └───────────────┬───────────────┘                       │
 │                         ▼                                       │
@@ -77,18 +77,18 @@ OpenPI Runtime 是基于 [Pi0](https://github.com/Physical-Intelligence/openpi) 
 
 | 数据类型 | 形状 | 数据类型 | 说明 |
 |---------|------|---------|------|
-| 动作序列 | [50, 7] | float32 | 50个时间步的动作，每步包含6个关节 + 夹爪 |
+| 动作序列 | [50, 14] | float32 | 50个时间步的动作，每步包含左臂的6个关节 + 夹爪，和右臂的6个关节 + 夹爪 |
 
 ### 性能指标
 
 | 阶段 | 平均耗时 | 说明 |
 |-----|---------|------|
-| 数据采集 | 5.2ms | ROS2 话题同步与数据获取 |
-| 前处理 | 128.3ms | 图像格式转换、归一化、tokenization |
-| 推理 | 245.1ms | Pi0 模型推理（服务端） |
-| 后处理 | 15.7ms | 动作解码、Delta 还原 |
-| 动作执行 | 1020ms | 50个动作 + 插值，总计约70个时间步 |
-| 单步循环 | 1420ms | 包含所有阶段的完整流程 |
+| 数据采集 | 0.1ms | ROS2 话题同步与数据获取 |
+| 前处理 | 3.2ms | 图像格式转换、归一化、tokenization |
+| 推理 | 192.5ms | Pi0 模型推理（服务端） |
+| 后处理 | 0.1ms | 动作解码、Delta 还原 |
+| 动作执行 | 700.5ms | 50个动作 + 插值，总计约70个时间步 |
+| 单步循环 | 896.4ms | 包含所有阶段的完整流程 |
 
 ## 开发环境
 
@@ -227,7 +227,7 @@ python3 install/lib/openpi_runtime/piper_node \
 ### 3. 启动 S600 推理节点
 
 **命令行启动**
-
+norm_stats_path要与你的模型文件匹配，注意修改路径。
 ```bash
 export COLCON_CURRENT_PREFIX=./install
 source /opt/ros/jazzy/setup.bash
@@ -236,7 +236,7 @@ export ROS_DOMAIN_ID=40
 
 python3 install/lib/openpi_runtime/s600_inference_node \
   --ros-args \
-  -p norm_stats_path:=/mnt/wang.liu/mount/tros_ws/src/openpi_runtime/openpi_runtime/norm_stats.json \
+  -p norm_stats_path:=norm_stats.json \
   -p action_topic:=/aliciaD/action \
   -p qpos_topic:=/piper/qpos \
   -p num_steps:=1250
@@ -325,7 +325,7 @@ openpi_runtime/
 ├── scripts/
 │   └── data_collector/            # 数据采集工具与说明文档
 └── README_cn.md                   # 本文档
-
+```
 > **数据采集**：如需采集训练数据集，请参考 [数据采集文档](./scripts/data_collector/README.md)。
 
 ## 故障排除
@@ -355,3 +355,7 @@ openpi_runtime/
 - [openpi](https://github.com/Physical-Intelligence/openpi)
 - [ROS2 官方文档](https://docs.ros.org/)
 - [Realsense SDK](https://github.com/IntelRealSense/realsense-ros)
+- [aliciaD](https://docs.sparklingrobo.com/docs/alicia-d-series/leader/doc_00_intro)
+- [piper](https://github.com/agilexrobotics/piper_sdk)
+
+

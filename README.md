@@ -35,10 +35,10 @@ This system adopts a client-server architecture: the S600 inference node acts as
 │         │        S600 Inference Node    │                       │
 │         │   s600_inference_node.py      │                       │
 │         ├───────────────────────────────┤                       │
-│         │  1. Data Collection (5.2ms)   │                       │
-│         │  2. Preprocessing (128.3ms)   │                       │
-│         │  3. Inference (245.1ms)       │                       │
-│         │  4. Postprocessing (15.7ms)   │                       │
+│         │  1. Data Collection (0.1ms)   │                       │
+│         │  2. Preprocessing (3.2ms)    │                       │
+│         │  3. Inference (192.5ms)      │                       │
+│         │  4. Postprocessing (0.1ms)   │                       │
 │         │  5. Action Interpolation      │                       │
 │         │     and Filtering             │                       │
 │         └───────────────┬───────────────┘                       │
@@ -78,18 +78,18 @@ This system adopts a client-server architecture: the S600 inference node acts as
 
 | Data Type | Shape | Data Type | Description |
 |-----------|-------|-----------|-------------|
-| Action Sequence | [50, 7] | float32 | 50 timesteps, each containing 6 joints + gripper |
+| Action Sequence | [50, 14] | float32 | 50 timesteps, each containing 6 joints + gripper for left arm, and 6 joints + gripper for right arm |
 
 ### Performance Metrics
 
 | Stage | Average Latency | Description |
 |-------|-----------------|-------------|
-| Data Collection | 5.2ms | ROS2 topic synchronization and data acquisition |
-| Preprocessing | 128.3ms | Image format conversion, normalization, tokenization |
-| Inference | 245.1ms | Pi0 model inference (server-side) |
-| Postprocessing | 15.7ms | Action decoding, Delta restoration |
-| Action Execution | 1020ms | 50 actions + interpolation, approximately 70 timesteps |
-| Single Loop | 1420ms | Complete pipeline including all stages |
+| Data Collection | 0.1ms | ROS2 topic synchronization and data acquisition |
+| Preprocessing | 3.2ms | Image format conversion, normalization, tokenization |
+| Inference | 192.5ms | Pi0 model inference (server-side) |
+| Postprocessing | 0.1ms | Action decoding, Delta restoration |
+| Action Execution | 700.5ms | 50 actions + interpolation, approximately 70 timesteps |
+| Single Loop | 896.4ms | Complete pipeline including all stages |
 
 ## Development Environment
 
@@ -326,7 +326,7 @@ openpi_runtime/
 ├── scripts/
 │   └── data_collector/            # Data collection tools and documentation
 └── README_cn.md                   # Chinese Documentation
-
+```
 > **Dataset Collection**: For training data collection, please refer to the [Data Collection Guide](./scripts/data_collector/README.md).
 
 ## Troubleshooting
@@ -356,3 +356,5 @@ openpi_runtime/
 - [openpi](https://github.com/Physical-Intelligence/openpi)
 - [ROS2 Official Documentation](https://docs.ros.org/)
 - [Realsense SDK](https://github.com/IntelRealSense/realsense-ros)
+- [aliciaD](https://docs.sparklingrobo.com/docs/alicia-d-series/leader/doc_00_intro)
+- [piper](https://github.com/agilexrobotics/piper_sdk)
