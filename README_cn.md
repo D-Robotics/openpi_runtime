@@ -88,7 +88,6 @@ OpenPI Runtime 是基于 [Pi0](https://github.com/Physical-Intelligence/openpi) 
 | 推理 | 192.5ms | Pi0 模型推理（服务端） |
 | 后处理 | 0.1ms | 动作解码、Delta 还原 |
 | 动作执行 | 700.5ms | 50个动作 + 插值，总计约70个时间步 |
-| 单步循环 | 896.4ms | 包含所有阶段的完整流程 |
 
 ## 开发环境
 

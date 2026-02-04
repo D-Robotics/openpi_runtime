@@ -89,7 +89,6 @@ This system adopts a client-server architecture: the S600 inference node acts as
 | Inference | 192.5ms | Pi0 model inference (server-side) |
 | Postprocessing | 0.1ms | Action decoding, Delta restoration |
 | Action Execution | 700.5ms | 50 actions + interpolation, approximately 70 timesteps |
-| Single Loop | 896.4ms | Complete pipeline including all stages |
 
 ## Development Environment
 
