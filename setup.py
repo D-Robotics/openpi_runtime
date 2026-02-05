@@ -8,6 +8,11 @@ for root, dirs, files in os.walk("scripts"):
     for f in files:
         script_files.append(os.path.join(root, f))
 
+resource_files = []
+for root, dirs, files in os.walk("resource"):
+    for f in files:
+        resource_files.append(os.path.join(root, f))
+
 setup(
     name=package_name,
     version="0.2.4",
@@ -16,6 +21,7 @@ setup(
         ("share/ament_index/resource_index/packages", ["resource/" + package_name]),
         ("share/" + package_name, ["package.xml"]),
         ("share/" + package_name + "/scripts", script_files),
+        ("share/" + package_name + "/resource", resource_files),
     ],
     package_data={
         "common.pi0_process": ["tokenizer.json", "tokenizer_config.json"],

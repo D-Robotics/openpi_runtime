@@ -48,6 +48,5 @@ tros_0.2.3 (2026-2-4)
 
 tros_0.2.4 (2026-2-5)
 ------------------
-1. Add scripts directory to package data_files for deployment
-2. Update documentation (README_cn.md, README.md)
+1. Add scripts and resource directories to package data_files for deployment
 
