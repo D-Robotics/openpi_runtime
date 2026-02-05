@@ -89,7 +89,6 @@ This system adopts a client-server architecture: the S600 inference node acts as
 | Inference | 192.5ms | Pi0 model inference (server-side) |
 | Postprocessing | 0.1ms | Action decoding, Delta restoration |
 | Action Execution | 700.5ms | 50 actions + interpolation, approximately 70 timesteps |
-| Single Loop | 896.4ms | Complete pipeline including all stages |
 
 ## Development Environment
 
@@ -104,13 +103,13 @@ This system adopts a client-server architecture: the S600 inference node acts as
 
 ## Dependencies
 
-### Python Dependencies
+### Python Dependencies (RDKs600)
 
-```
-numpy>=1.24.0
-opencv-python>=4.8.0
-tyro>=0.7.0
-cv-bridge
+```bash
+conda create -n s600_pi0 python=3.12
+conda activate s600_pi0
+
+pip install -r resource/requirements.txt
 ```
 
 ### ROS2 Package Dependencies
@@ -229,6 +228,12 @@ python3 install/lib/openpi_runtime/piper_node \
 
 **Command Line**
 
+Ensure `norm_stats_path` matches your model file. Download norm_stats.json from:
+- put_the_yellow_mango_on_the_blue_plate
+https://huggingface.co/D-Robotics/openpi/tree/main/pi0_put_the_yellow_mango_on_the_blue_plate/torch/assets/trossen
+- put_the_box
+https://huggingface.co/D-Robotics/openpi/tree/main/put_the_box/torch/assets/trossen
+
 ```bash
 export COLCON_CURRENT_PREFIX=./install
 source /opt/ros/jazzy/setup.bash
@@ -237,7 +242,7 @@ export ROS_DOMAIN_ID=40
 
 python3 install/lib/openpi_runtime/s600_inference_node \
   --ros-args \
-  -p norm_stats_path:=/mnt/wang.liu/mount/tros_ws/src/openpi_runtime/openpi_runtime/norm_stats.json \
+  -p norm_stats_path:=norm_stats.json \
   -p action_topic:=/aliciaD/action \
   -p qpos_topic:=/piper/qpos \
   -p num_steps:=1250

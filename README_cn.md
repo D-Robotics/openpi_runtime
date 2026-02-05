@@ -88,7 +88,6 @@ OpenPI Runtime 是基于 [Pi0](https://github.com/Physical-Intelligence/openpi) 
 | 推理 | 192.5ms | Pi0 模型推理（服务端） |
 | 后处理 | 0.1ms | 动作解码、Delta 还原 |
 | 动作执行 | 700.5ms | 50个动作 + 插值，总计约70个时间步 |
-| 单步循环 | 896.4ms | 包含所有阶段的完整流程 |
 
 ## 开发环境
 
@@ -103,13 +102,12 @@ OpenPI Runtime 是基于 [Pi0](https://github.com/Physical-Intelligence/openpi) 
 
 ## 依赖项
 
-### Python 依赖
+### RDKs600端的 Python 依赖
+```bash
+conda create -n s600_pi0 python=312
+conda activate s600_pi0
 
-```
-numpy>=1.24.0
-opencv-python>=4.8.0
-tyro>=0.7.0
-cv-bridge
+pip install -r resource/requirements.txt
 ```
 
 ### ROS2 包依赖
@@ -224,10 +222,18 @@ python3 install/lib/openpi_runtime/piper_node \
   --can_name can0
 ```
 
+
+
+
 ### 3. 启动 S600 推理节点
 
 **命令行启动**
 norm_stats_path要与你的模型文件匹配，注意修改路径。
+norm_stats.json的下载路径：
+- put_the_yellow_mango_on_the_blue_plate
+https://huggingface.co/D-Robotics/openpi/tree/main/pi0_put_the_yellow_mango_on_the_blue_plate/torch/assets/trossen
+- put_the_box
+https://huggingface.co/D-Robotics/openpi/tree/main/put_the_box/torch/assets/trossen
 ```bash
 export COLCON_CURRENT_PREFIX=./install
 source /opt/ros/jazzy/setup.bash
