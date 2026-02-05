@@ -41,6 +41,12 @@ tros_0.2.2 (2026-2-3)
 2. Optimized the action execution phase, using a first-order low-pass filter + linear interpolation algorithm to make the motion trajectory smoother
 3. Updated the acquisition methods for models and datasets, as well as data collection documents and readme documents
 
-tros_0.2.2 (2026-2-4)
+tros_0.2.3 (2026-2-4)
 ------------------
 1. update documentation, fix known functional issues
+
+
+tros_0.2.4 (2026-2-5)
+------------------
+1. Add scripts and resource directories to package data_files for deployment
+
