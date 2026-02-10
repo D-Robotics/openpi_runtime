@@ -130,7 +130,7 @@ ros2 bag play rosbag2_20260101_154003/ --topics /aliciaD/action
 Convert ROS bag format to HDF5 for training:
 
 ```bash
-python bag_2_hdf5.py -i /path/to/input -o /path/to/output
+python bag_2_hdf5.py -i rosbag/ -o hdf5/
 ```
 
 ### File Renaming
@@ -138,5 +138,5 @@ python bag_2_hdf5.py -i /path/to/input -o /path/to/output
 Rename the converted HDF5 files with sequential indices:
 
 ```bash
-python rename_hdf5.py /path/to/output --start 0
+python rename_hdf5.py ./hdf5 --start 0
 ```

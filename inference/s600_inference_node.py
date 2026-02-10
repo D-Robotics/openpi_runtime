@@ -372,12 +372,12 @@ def main(args: Args = None) -> None:
                     
                     if is_first_action:
                         # 第一个动作：从当前状态到 action[0] 插值10次
-                        transition_steps = 10
+                        transition_steps = 12
                         for t in range(transition_steps):
                             ratio = (t + 1) / transition_steps
                             interpolated_joints = (1 - ratio) * current_state[:6] + ratio * action_joints
                             ros_node.publish_action(np.concatenate([interpolated_joints, [action_gripper]]))
-                            time.sleep(0.01)
+                            time.sleep(0.02)
                     elif is_last_action:
                         # 最后一个动作：从 action[48] 到 action[49] 插值10次
                         transition_steps = 10
@@ -385,13 +385,13 @@ def main(args: Args = None) -> None:
                             ratio = (t + 1) / transition_steps
                             final_joints = (1 - ratio) * previous_joints + ratio * action_joints
                             ros_node.publish_action(np.concatenate([final_joints, [action_gripper]]))
-                            time.sleep(0.01)
+                            time.sleep(0.02)
                     else:
                         # 中间的动作：使用一阶低通滤波
-                        alpha = 0.15
+                        alpha = 0.2
                         filtered_joints = alpha * action_joints + (1 - alpha) * previous_joints
                         ros_node.publish_action(np.concatenate([filtered_joints, [action_gripper]]))
-                        time.sleep(0.01)
+                        time.sleep(0.02)
                     
                     previous_joints = action_joints.copy()
                     previous_gripper = action_gripper

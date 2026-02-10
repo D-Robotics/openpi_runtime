@@ -3,8 +3,7 @@
 # 使用rosbag记录话题
 
 # 配置路径
-SOURCE_DIR="/mnt/wang.liu/mnt/datasets" # 本地存储路径，注意不要用网络挂载的文件夹，避免丢帧
-BAG_NAME="rosbag2_$(date +%Y%m%d_%H%M%S)"
+BAG_NAME="rosbag/rosbag2_$(date +%Y%m%d_%H%M%S)"
 
 # 执行录制（移除max-bag-size参数）
 ros2 bag record \
