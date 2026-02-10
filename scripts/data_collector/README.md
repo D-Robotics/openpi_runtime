@@ -125,6 +125,14 @@ ros2 bag play rosbag2_20260101_154003/ --topics /aliciaD/action
 
 ## Dataset Post-processing
 
+### Installation
+
+Install the required Python dependencies:
+
+```bash
+pip install -r ./requirements.txt
+```
+
 ### Format Conversion
 
 Convert ROS bag format to HDF5 for training:
